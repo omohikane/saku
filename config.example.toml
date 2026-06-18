@@ -1,0 +1,29 @@
+# SAKU Configuration
+# Copy this file to config.toml and edit to match your environment.
+
+[llm]
+# llama.cpp server (or any OpenAI-compatible API like OpenAI, OpenRouter, etc.)
+api_url = "http://127.0.0.1:8080/v1/chat/completions"
+
+# Optional API key (e.g. for OpenAI, OpenRouter). 
+# If omitted or empty, checks the OPENAI_API_KEY environment variable.
+# api_key = "your-api-key"
+
+# Optional model name (required for OpenAI/OpenRouter, optional/ignored for single-model local servers)
+# model = "qwen2.5-7b-instruct"
+
+[memory]
+# Path to the memory directory, relative to this config file
+# Default: memory/ in the repo root
+root = "memory"
+
+[agent]
+max_history_messages = 30
+
+[daemon]
+chat_poll_seconds = 5
+tick_interval_seconds = 1800          # Autonomous study/monologue tick (30 min)
+inbox_poll_seconds = 3600             # Inbox scan interval (1 hour)
+archive_after_inactive_seconds = 1800 # Archive chat after 30 min inactivity
+archive_after_turns = 10              # Archive chat after 10 turns
+auto_initiate_cooldown_seconds = 28800 # SAKU self-initiates every 8 hours

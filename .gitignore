@@ -1,4 +1,67 @@
+# Python
 __pycache__/
 *.pyc
-.env
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+
+# User config (copy config.example.toml to config.toml and edit)
+config.toml
+
+# LLM model files
 *.gguf
+*.bin
+*.safetensors
+
+# Personal agent identity (use genome.template.md as base)
+identity/genome.md
+!identity/genome.template.md
+
+# Runtime state (machine-local, auto-generated)
+src/chat_state.json
+src/processed_inbox.json
+memory/chat_state.json
+memory/processed_inbox.json
+
+# Personal memory data (do NOT commit your own data)
+memory/journal/
+memory/monologue/
+memory/principles/
+memory/drafts/
+memory/study/
+memory/skills/
+memory/children/
+memory/tools/
+memory/meta.md
+memory/chat.md
+
+# Keep empty directory markers
+!memory/journal/.gitkeep
+!memory/monologue/.gitkeep
+!memory/principles/.gitkeep
+!memory/drafts/.gitkeep
+!memory/study/.gitkeep
+!memory/skills/.gitkeep
+!memory/children/.gitkeep
+
+# Temp files from code sandbox
+tmp*.py
+tmp*.md
+
+# Logs
+*.log
+nohup.out
