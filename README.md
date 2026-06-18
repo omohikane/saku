@@ -32,6 +32,14 @@ The "personality" of your agent is defined entirely by you in a file called `gen
 
 Since your agent's journals and thought logs are plain Markdown files, you can easily read, write, sync (e.g., using Obsidian Sync or iCloud), and version control (Git) them with your favorite text editors.
 
+## Growth Records
+
+SAKU's evolution is tracked in `examples/growth/`.
+See [week-0](examples/growth/week-0.md) for the initial state.
+
+> Why this matters: "self-evolving" is easy to claim but hard to show.
+> Snapshots let you compare across time and verify the agent is actually changing.
+
 ---
 
 ## Quick Start
