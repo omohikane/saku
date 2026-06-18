@@ -11,7 +11,7 @@ CODE_ROOT = Path(__file__).parent
 sys.path.append(str(CODE_ROOT))
 
 import saku_core as agent
-from tools import read_file, list_dir, write_file, search_notes
+from tools import read_file, list_dir, write_file, search_notes, append_file
 
 def run_tests():
     print("[*] Running SAKU Integration Tests in Public Repository Structure...")
@@ -77,20 +77,26 @@ def run_tests():
         assert "Found" in res, f"Expected search results, got: {res}"
         print("    -> PASS")
 
-        # 5. Write file to meta.md test (should be allowed now)
-        print("[5] Test writing to meta.md (should succeed):")
+        # 5. Write file to meta.md test (should be DENIED now)
+        print("[5] Test write_file denial and append_file allowance on meta.md:")
         meta_path = SAKU_ROOT / "meta.md"
         original_meta = ""
         if meta_path.exists():
             original_meta = meta_path.read_text(encoding="utf-8")
+        else:
+            meta_path.write_text("## 最近の出来事\n", encoding="utf-8")
         
-        test_content = original_meta + "\n<!-- test temp write -->"
-        res = write_file.run(SAKU_ROOT, "meta.md", test_content)
-        assert "[OK]" in res, f"Expected OK for meta.md write, got: {res}"
+        # Assert WRITE_FILE is blocked
+        res_write = write_file.run(SAKU_ROOT, "meta.md", "clobbered content")
+        assert "[DENY]" in res_write, f"Expected DENY for meta.md write, got: {res_write}"
         
-        # Verify write and restore
-        restored_content = meta_path.read_text(encoding="utf-8")
-        assert "<!-- test temp write -->" in restored_content, "Write did not modify file."
+        # Assert APPEND_FILE is allowed
+        res_append = append_file.run(SAKU_ROOT, "meta.md", "\n<!-- test temp append -->")
+        assert "[OK]" in res_append, f"Expected OK for meta.md append, got: {res_append}"
+        
+        # Verify append and restore
+        appended_content = meta_path.read_text(encoding="utf-8")
+        assert "<!-- test temp append -->" in appended_content, "Append did not modify file."
         if original_meta:
             meta_path.write_text(original_meta, encoding="utf-8")
         else:
