@@ -106,14 +106,23 @@ def split_thinking(text: str) -> tuple[str, str]:
 
 # ── Tool Execution ──────────────────────────────────────
 def exec_tools(raw: str) -> list[str]:
-    """Parse and execute [[TOOL ...]] blocks in SAKU's output dynamically."""
+    """Parse and execute [[TOOL ...]] blocks in SAKU's output dynamically.
+    Also validates that all start tags of valid tools are properly closed.
+    """
     import sys
     import traceback
     results: list[str] = []
 
+    # Find all start tags of valid tools to check for syntax errors
+    start_pattern = r"\[\[([A-Z_]+)\s*(.*?)\]\]"
+    starts = list(re.finditer(start_pattern, raw))
+    parsed_ranges = []
+
     pattern = r"\[\[(\w+)\s*(.*?)\]\]\s*\n(.*?)\n?\[\[END\]\]"
     for m in re.finditer(pattern, raw, re.DOTALL):
         name, args_str, body = m.group(1), m.group(2), m.group(3)
+        start_idx, end_idx = m.start(), m.end()
+        parsed_ranges.append((start_idx, end_idx))
 
         # Tools live in src/tools/, not in the memory root
         tool_module_name = f"tools.{name.lower()}"
@@ -136,6 +145,29 @@ def exec_tools(raw: str) -> list[str]:
             result = f"[ERROR] {e}\n{traceback.format_exc()}"
 
         results.append(f"[{name}] {result}")
+
+    # Check for unclosed/malformed tool calls
+    for start_match in starts:
+        name = start_match.group(1)
+        tool_file = CODE_ROOT / "tools" / f"{name.lower()}.py"
+        # Only check tools that actually exist in tools/
+        if not tool_file.exists():
+            continue
+
+        start_pos = start_match.start()
+        inside_parsed = False
+        for p_start, p_end in parsed_ranges:
+            if p_start <= start_pos < p_end:
+                inside_parsed = True
+                break
+
+        if not inside_parsed:
+            # Tool call was started but failed to parse completely
+            has_end = "[[END]]" in raw[start_pos:]
+            if not has_end:
+                results.append(f"[ERROR] Tool [[{name}]] was not closed with [[END]]. Every tool call block must end with [[END]] on its own line.")
+            else:
+                results.append(f"[ERROR] Tool [[{name}]] has invalid syntax. Ensure a newline after the start tag and before [[END]]. Example:\n[[{name} path=\"...\"]]\ncontent\n[[END]]")
 
     return results
 
