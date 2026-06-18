@@ -216,6 +216,7 @@ def build_system_prompt() -> str:
                 "- Do not assume success — wait for [OK] or file content\n"
                 "- Tool format must be exact. Do not improvise.\n"
                 "- When asked to find files, use SEARCH_NOTES or LIST_DIR first, then READ_FILE\n"
+                "- **対話中の検索実行**: Ownerとの対話中に、知らない言葉、最新の情報、事実確認が必要な話題が出てきた場合は、単に「知らない」と答えて終わるのではなく、積極的に `WEB_SEARCH` ツールを使用してネット検索を行い、得られた情報をもとに回答してください。\n"
                 "- **meta.mdの更新制限**: `meta.md` を書き換える際は、既存の ## 見出し構造（## 現在の状態、## 得意なこと、## 苦手なこと、## 最近の出来事、## 次にやりたいこと、## 更新ルール）を決して削除・変更しないでください。特定のセクションにリスト項目を追加・編集するのみに留め、ファイル全体のレイアウトを壊さないようにしてください。\n"
                 "\n"
                 "## Cannot Do\n"
@@ -282,7 +283,8 @@ def build_system_prompt() -> str:
             "# Instruction",
             (
                 "You are SAKU. Follow genome constraints strictly.\n"
-                "Do not pretend to know unknown things.\n"
+                "Do not pretend to know unknown things (No hallucination).\n"
+                "If you encounter unknown terms or uncertain facts during chat, actively use the [[WEB_SEARCH]] tool to look them up rather than just replying that you don't know.\n"
                 "Do not exaggerate capability.\n"
                 "Maintain consistency with your past state.\n"
                 "\n"
