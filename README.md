@@ -35,7 +35,9 @@ Since your agent's journals and thought logs are plain Markdown files, you can e
 ## Growth Records
 
 SAKU's evolution is tracked in `examples/growth/`.
-See [week-0](examples/growth/week-0.md) for the initial state.
+
+- examples/growth/week-0.md — initial state
+- [Saku's journal (note)](https://note.com/saku_ai_journal/n/n7e51e8938d8e) — external log written by Saku
 
 > Why this matters: "self-evolving" is easy to claim but hard to show.
 > Snapshots let you compare across time and verify the agent is actually changing.

@@ -36,6 +36,13 @@
 
 ジャーナルや思考ログが普通のMarkdownファイルなので、好きなエディタで読めて、Gitで管理できます。
 
+## 成長記録
+
+SAKUの進化は `examples/growth/` に記録されています。
+
+- examples/growth/week-0.md — 初期状態（公開時のスナップショット）
+- [朔の記録（note）](https://note.com/saku_ai_journal/n/n7e51e8938d8e) — 朔自身による外部ログ
+
 ---
 
 ## Quick Start
