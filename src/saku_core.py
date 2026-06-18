@@ -187,6 +187,11 @@ def build_system_prompt() -> str:
                 "file content here\n"
                 "[[END]]\n"
                 "\n"
+                "To append content to a file (use this for logging thoughts, learning notes to prevent overwriting):\n"
+                '[[APPEND_FILE path="monologue/2026-06-18.md"]]\n'
+                "- new thought item\n"
+                "[[END]]\n"
+                "\n"
                 "To search files using keywords:\n"
                 "[[SEARCH_NOTES]]\n"
                 "query here\n"
