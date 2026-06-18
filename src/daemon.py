@@ -173,6 +173,20 @@ def run_agent_loop(prompt: str, log_action_name: str, extra_history: list[dict] 
     action_taken = False
 
     while turn < max_turns:
+        # --- Context Protection / Pruning ---
+        # Safe character limit (~12000 chars is roughly 4000-6000 tokens, well below 8192 context limit)
+        char_limit = 12000
+        total_chars = sum(len(m.get("content", "")) for m in history)
+        
+        if total_chars > char_limit and len(history) > 5:
+            print(f"[*] Context size is large ({total_chars} chars). Pruning old history...")
+            # Keep system prompt (index 0) and the last 4 messages (which contain current tools and logic)
+            # and discard the middle (older chat logs)
+            pruned_history = [history[0]] + history[-4:]
+            history = pruned_history
+            new_total = sum(len(m.get("content", "")) for m in history)
+            print(f"[*] Pruned context size down to {new_total} chars.")
+
         raw_reply = agent.chat_stream(history)
         last_raw = raw_reply
 
@@ -195,7 +209,15 @@ def run_agent_loop(prompt: str, log_action_name: str, extra_history: list[dict] 
         tool_results = agent.exec_tools(raw_reply)
         if tool_results:
             action_taken = True
-            tool_output = "\n".join(tool_results)
+            
+            # Truncate overly long tool outputs to prevent context pollution
+            processed_results = []
+            for tr in tool_results:
+                if len(tr) > 2000:
+                    tr = tr[:2000] + "\n\n[... tool output truncated to save context ...]"
+                processed_results.append(tr)
+                
+            tool_output = "\n".join(processed_results)
             print(f"\n[tool] {tool_output}")
             history.append({"role": "user", "content": f"[system] tool results:\n{tool_output}"})
         else:

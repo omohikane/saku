@@ -30,10 +30,18 @@ def run(base: Path, path: str, body: str = "") -> str:
 
         # Run script with a timeout to prevent infinite loops
         # cwd is set to study_dir so files created by SAKU's script stay there
+        # sys.path injection: allow both `import foo` (from study/) and
+        # `from study.foo import ...` (from memory root) to work.
+        env = os.environ.copy()
+        extra_paths = str(study_dir) + os.pathsep + str(study_dir.parent)
+        existing = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = extra_paths + (os.pathsep + existing if existing else "")
+
         print(f"[*] Running SAKU script: {temp_file_path.name}")
         proc = subprocess.run(
             ["python3", str(temp_file_path)],
             cwd=study_dir,
+            env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,

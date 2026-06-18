@@ -22,13 +22,13 @@ The "personality" of your agent is defined entirely by you in a file called `gen
 
 ## Why SAKU?
 
-| Aspect | General AI Frameworks | SAKU |
-|---|---|---|
-| **Target** | Task pipelines / single-use agents | A single, persistent individual persona |
-| **Memory** | Vector Databases / cloud APIs | Plain Markdown files |
-| **Activity** | Run only when triggered / called | Runs continuously as a background process |
-| **Environment** | Mostly cloud-dependent | Completely local (supports commercial APIs too) |
-| **Extension** | Configuration files / decorators | Simply drop a Python script in a directory |
+| Aspect          | General AI Frameworks              | SAKU                                            |
+| --------------- | ---------------------------------- | ----------------------------------------------- |
+| **Target**      | Task pipelines / single-use agents | A single, persistent individual persona         |
+| **Memory**      | Vector Databases / cloud APIs      | Plain Markdown files                            |
+| **Activity**    | Run only when triggered / called   | Runs continuously as a background process       |
+| **Environment** | Mostly cloud-dependent             | Completely local (supports commercial APIs too) |
+| **Extension**   | Configuration files / decorators   | Simply drop a Python script in a directory      |
 
 Since your agent's journals and thought logs are plain Markdown files, you can easily read, write, sync (e.g., using Obsidian Sync or iCloud), and version control (Git) them with your favorite text editors.
 
@@ -116,13 +116,13 @@ config.example.toml    # Configuration template (tracked)
 
 The background daemon wakes up periodically to execute tasks:
 
-| Interval | Action | Status |
-|---|---|---|
-| **5 seconds** | Check for new user messages in `chat.md` | ✅ Implemented |
-| **30 minutes** | Autonomous tick (web research, inner thoughts, sandboxed tests) | ✅ Implemented |
-| **1 hour** | Scan Vault `00_Inbox` folder for new notes | ✅ Implemented |
-| **8 hours** | Initiate autonomous conversation in `chat.md` | ✅ Implemented |
-| **Every day at 02:00** | Nightly reflection: summarize today, plan tomorrow | ✅ Implemented |
+| Interval               | Action                                                          | Status         |
+| ---------------------- | --------------------------------------------------------------- | -------------- |
+| **5 seconds**          | Check for new user messages in `chat.md`                        | ✅ Implemented |
+| **30 minutes**         | Autonomous tick (web research, inner thoughts, sandboxed tests) | ✅ Implemented |
+| **1 hour**             | Scan Vault `00_Inbox` folder for new notes                      | ✅ Implemented |
+| **8 hours**            | Initiate autonomous conversation in `chat.md`                   | ✅ Implemented |
+| **Every day at 02:00** | Nightly reflection: summarize today, plan tomorrow              | ✅ Implemented |
 
 All intervals are configurable inside the `[daemon]` section of `config.toml`.
 
@@ -171,15 +171,16 @@ No registration is needed. Tools are loaded dynamically at runtime. See [docs/TO
 
 ## Roadmap
 
-| Phase | Name | Description | Status |
-|---|---|---|---|
-| **0** | Write | Organized notes, draft articles | ✅ Done |
-| **1** | Learn | Web research, autonomous study loops | ✅ Done |
-| **2** | Protect | Local home network monitoring, anomaly detection | Planned |
-| **3** | Integrate | External integrations, custom APIs | Planned |
-| **4** | Spawn | Managing child agents (Sub-Agents) | Planned |
+| Phase | Name      | Description                                      | Status  |
+| ----- | --------- | ------------------------------------------------ | ------- |
+| **0** | Write     | Organized notes, draft articles                  | ✅ Done |
+| **1** | Learn     | Web research, autonomous study loops             | ✅ Done |
+| **2** | Protect   | Local home network monitoring, anomaly detection | Planned |
+| **3** | Integrate | External integrations, custom APIs               | Planned |
+| **4** | Spawn     | Managing child agents (Sub-Agents)               | Planned |
 
 ### Future Ideas
+
 - [ ] Memory store abstraction layer (SQLite, Vector DB)
 - [ ] Web UI for conversation instead of `chat.md`
 - [ ] Community tool registry / marketplace
@@ -199,13 +200,19 @@ No registration is needed. Tools are loaded dynamically at runtime. See [docs/TO
 
 ## Documentation
 
-*Note: Detailed documentation files are currently written in Japanese. Please use translation tools if necessary.*
+_Note: Detailed documentation files are currently written in Japanese. Please use translation tools if necessary._
 
 - [docs/SETUP.md](docs/SETUP.md) — Detailed setup instructions
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — System architecture & data flow
 - [docs/TOOLS.md](docs/TOOLS.md) — Tool expansion guide
 - [docs/DAEMON.md](docs/DAEMON.md) — Daemon lifecycle & events
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Developer guidelines & contribution flow
+
+---
+
+## Author
+
+Created by [@omohikane](https://github.com/omohikane)
 
 ---
 

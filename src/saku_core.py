@@ -357,7 +357,12 @@ def chat_stream(messages: list[dict]) -> str:
     except requests.ConnectionError:
         return "[ERROR] llama-server not reachable at " + API_URL
     except requests.HTTPError as e:
-        return f"[ERROR] {e}"
+        # Include response body to help diagnose 400/422 errors from llama-server
+        try:
+            detail = e.response.text[:300]
+        except Exception:
+            detail = ""
+        return f"[ERROR] {e}" + (f"\n{detail}" if detail else "")
 
     full = ""
     in_thinking = False
