@@ -9,6 +9,9 @@ ALLOWED_PREFIXES = [
     "skills/",
     "study/",
     "meta.md",
+    "chat.md",
+    "request_list.md",
+    "journal/",
 ]
 
 

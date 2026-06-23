@@ -11,6 +11,7 @@ ALLOWED_PREFIXES = [
     "chat.md",
     "study/",
     "request_list.md",
+    "journal/",
 ]
 
 # meta.md is intentionally excluded from WRITE_FILE — use APPEND_FILE instead

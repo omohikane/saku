@@ -56,9 +56,38 @@ else:
 
 SAKU_ROOT = MEMORY_ROOT  # alias kept for backward-compat with tools
 
-API_URL = _cfg.get("llm", {}).get("api_url", "http://127.0.0.1:8080/v1/chat/completions")
-API_KEY = _cfg.get("llm", {}).get("api_key", os.environ.get("OPENAI_API_KEY", ""))
-MODEL_NAME = _cfg.get("llm", {}).get("model", "")
+# Load LLM configuration with profile support
+def _load_llm_config() -> tuple[str, str, str]:
+    """Load LLM config from active profile or fallback to legacy settings."""
+    llm_cfg = _cfg.get("llm", {})
+    
+    # Try to load from active profile
+    active_profile = llm_cfg.get("active_profile", "")
+    if active_profile:
+        profiles = llm_cfg.get("profiles", {})
+        if active_profile in profiles:
+            profile = profiles[active_profile]
+            api_url = profile.get("api_url", "")
+            api_key = profile.get("api_key", "")
+            model = profile.get("model", "")
+            
+            # Support environment variable fallback for API keys
+            if not api_key:
+                if active_profile == "anthropic":
+                    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+                else:
+                    api_key = os.environ.get("OPENAI_API_KEY", "")
+            
+            return api_url, api_key, model
+    
+    # Fallback to legacy settings
+    api_url = llm_cfg.get("api_url", "http://127.0.0.1:8080/v1/chat/completions")
+    api_key = llm_cfg.get("api_key", os.environ.get("OPENAI_API_KEY", ""))
+    model = llm_cfg.get("model", "")
+    
+    return api_url, api_key, model
+
+API_URL, API_KEY, MODEL_NAME = _load_llm_config()
 MAX_GENOME_CHARS = 3000
 MAX_HISTORY_MESSAGES = _cfg.get("agent", {}).get("max_history_messages", 30)
 
@@ -247,8 +276,8 @@ def build_system_prompt() -> str:
                 "\n"
                 "## Tool Rules\n"
                 "- path is relative to _saku/\n"
-                "- Write allowed: drafts/, monologue/, principles/, skills/, tools/, meta.md, chat.md, study/\n"
-                "- Write denied: genome.md, core/, journal/\n"
+                "- Write allowed: drafts/, monologue/, principles/, skills/, tools/, meta.md, chat.md, study/, journal/, request_list.md\n"
+                "- Write denied: genome.md, core/\n"
                 "- Read/List allowed: Vault全体（_saku/ 内および `../` を経由した他ディレクトリも読取可）\n"
                 "- Do not assume success — wait for [OK] or file content\n"
                 "- Tool format must be exact. Do not improvise.\n"
