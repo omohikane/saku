@@ -2,15 +2,38 @@
 # Copy this file to config.toml and edit to match your environment.
 
 [llm]
-# llama.cpp server (or any OpenAI-compatible API like OpenAI, OpenRouter, etc.)
+# Select which LLM profile to use (must match a profile name below)
+active_profile = "local"
+
+# Fallback settings (used if profiles are not defined or for backward compatibility)
 api_url = "http://127.0.0.1:8080/v1/chat/completions"
+api_key = ""
+model = ""
 
-# Optional API key (e.g. for OpenAI, OpenRouter). 
-# If omitted or empty, checks the OPENAI_API_KEY environment variable.
-# api_key = "your-api-key"
+# LLM Profiles - define multiple configurations and switch between them
+[llm.profiles.local]
+# Local llama.cpp server
+api_url = "http://127.0.0.1:8080/v1/chat/completions"
+api_key = ""
+model = ""
 
-# Optional model name (required for OpenAI/OpenRouter, optional/ignored for single-model local servers)
-# model = "qwen2.5-7b-instruct"
+[llm.profiles.openai]
+# OpenAI API
+api_url = "https://api.openai.com/v1/chat/completions"
+api_key = ""  # Set your API key here or use OPENAI_API_KEY environment variable
+model = "gpt-4o"
+
+[llm.profiles.openrouter]
+# OpenRouter API
+api_url = "https://openrouter.ai/api/v1/chat/completions"
+api_key = ""  # Set your API key here or use OPENAI_API_KEY environment variable
+model = "anthropic/claude-3.5-sonnet"
+
+[llm.profiles.anthropic]
+# Anthropic API (via OpenRouter or direct)
+api_url = "https://api.anthropic.com/v1/messages"
+api_key = ""  # Set your API key here or use ANTHROPIC_API_KEY environment variable
+model = "claude-3-5-sonnet-20240620"
 
 [memory]
 # Path to the memory directory, relative to this config file

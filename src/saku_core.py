@@ -88,6 +88,31 @@ def _load_llm_config() -> tuple[str, str, str]:
     return api_url, api_key, model
 
 API_URL, API_KEY, MODEL_NAME = _load_llm_config()
+
+def switch_llm_profile(profile_name: str) -> str:
+    """Switch LLM profile dynamically and update global variables."""
+    global API_URL, API_KEY, MODEL_NAME
+    
+    llm_cfg = _cfg.get("llm", {})
+    profiles = llm_cfg.get("profiles", {})
+    
+    if profile_name not in profiles:
+        return f"[ERROR] Profile '{profile_name}' not found. Available: {', '.join(profiles.keys())}"
+    
+    profile = profiles[profile_name]
+    API_URL = profile.get("api_url", "")
+    API_KEY = profile.get("api_key", "")
+    MODEL_NAME = profile.get("model", "")
+    
+    # Support environment variable fallback for API keys
+    if not API_KEY:
+        if profile_name == "anthropic":
+            API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+        else:
+            API_KEY = os.environ.get("OPENAI_API_KEY", "")
+    
+    return f"[OK] Switched to profile: {profile_name} (API: {API_URL}, Model: {MODEL_NAME})"
+
 MAX_GENOME_CHARS = 3000
 MAX_HISTORY_MESSAGES = _cfg.get("agent", {}).get("max_history_messages", 30)
 
@@ -273,6 +298,16 @@ def build_system_prompt() -> str:
                 "- ファイルに書いて実行したい場合: まずWRITE_FILEで保存し、次のEXECUTE_CODEに同じコードを直接コピーして渡す。\n"
                 "- 実行環境: study/ ディレクトリ内。標準ライブラリのみ使用可（tensorflow等の外部pkgはインポートエラーになる場合あり）。\n"
                 "- タイムアウト: 5秒。\n"
+                "\n"
+                "To switch LLM profile (e.g., from local to cloud API):\n"
+                "[[SWITCH_PROFILE]]\n"
+                "openai  # or 'openrouter', 'anthropic', 'local'\n"
+                "[[END]]\n"
+                "\n"
+                "SWITCH_PROFILE rules:\n"
+                "- 高度な思考や複雑なタスクが必要な場合は、クラウドLLM（openai/openrouter/anthropic）に切り替えてください。\n"
+                "- 通常のタスクはローカルLLM（local）で十分です。\n"
+                "- プロファイル切り替えはAPIキーが設定されている場合のみ有効です。\n"
                 "\n"
                 "## Tool Rules\n"
                 "- path is relative to _saku/\n"
