@@ -13,6 +13,8 @@ Runs in the background, waking up periodically to:
 """
 
 import json
+import logging
+import logging.handlers
 import os
 import re
 import sys
@@ -34,7 +36,7 @@ CHAT_FILE = MEMORY_ROOT / "chat.md"
 STATE_FILE = MEMORY_ROOT / "state/processed_inbox.json"
 CHAT_STATE_FILE = MEMORY_ROOT / "state/chat_state.json"
 REQUEST_FILE = MEMORY_ROOT / "request_list.md"
-LOG_FILE = MEMORY_ROOT / "state/saku.log"
+LOG_DIR = MEMORY_ROOT / "state"
 
 CHAT_POLL_SECONDS = _dcfg.get("chat_poll_seconds", 5)
 INBOX_POLL_SECONDS = _dcfg.get("inbox_poll_seconds", 3600)
@@ -44,19 +46,36 @@ ARCHIVE_AFTER_INACTIVE_SECONDS = _dcfg.get("archive_after_inactive_seconds", 180
 ARCHIVE_AFTER_TURNS = _dcfg.get("archive_after_turns", 10)
 AUTO_INITIATE_COOLDOWN_SECONDS = _dcfg.get("auto_initiate_cooldown_seconds", 28800)
 
-# ── Debug Logger ──────────────────────────────────────
-def log_debug(level: str, context: str, message: str) -> None:
-    """Append a structured log entry to saku.log for easy post-mortem inspection."""
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if len(message) > 500:
-        message = message[:500] + " [...truncated]"
-    line = f"[{now}] [{level}] [{context}] {message}\n"
-    try:
-        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with LOG_FILE.open("a", encoding="utf-8") as f:
-            f.write(line)
-    except Exception as e:
-        print(f"[!] log_debug write error: {e}")
+# ── Logging Setup ─────────────────────────────────────
+def _setup_logging():
+    log_dir = LOG_DIR
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    main_handler = logging.handlers.RotatingFileHandler(
+        log_dir / "saku.log", maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8"
+    )
+    main_handler.setLevel(logging.INFO)
+    main_handler.setFormatter(logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    ))
+
+    error_handler = logging.handlers.RotatingFileHandler(
+        log_dir / "saku-error.log", maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8"
+    )
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    ))
+
+    logger = logging.getLogger("saku")
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(main_handler)
+    logger.addHandler(error_handler)
+    return logger
+
+logger = _setup_logging()
 
 CHAT_RESET_HEADER = """# SAKU Chat — 書面対話ノート
 
@@ -181,7 +200,7 @@ def run_agent_loop(prompt: str, log_action_name: str, extra_history: list[dict] 
         history.extend(extra_history)
     history.append({"role": "user", "content": prompt})
 
-    log_debug("INFO", log_action_name, "agent loop started")
+    logger.info("[%s] agent loop started", log_action_name)
 
     max_turns = 5
     turn = 0
@@ -198,7 +217,7 @@ def run_agent_loop(prompt: str, log_action_name: str, extra_history: list[dict] 
         
         if total_chars > char_limit and len(history) > 5:
             print(f"[*] Context size is large ({total_chars} chars). Pruning old history...")
-            log_debug("WARN", log_action_name, f"context pruned: {total_chars} chars -> keeping system + last 4 msgs")
+            logger.warning("[%s] context pruned: %d chars -> keeping system + last 4 msgs", log_action_name, total_chars)
             # Keep system prompt (index 0) and the last 4 messages (which contain current tools and logic)
             # and discard the middle (older chat logs)
             pruned_history = [history[0]] + history[-4:]
@@ -211,7 +230,7 @@ def run_agent_loop(prompt: str, log_action_name: str, extra_history: list[dict] 
 
         if raw_reply.startswith("[ERROR]"):
             print(f"[!] LLM Error: {raw_reply}")
-            log_debug("ERROR", log_action_name, f"LLM error: {raw_reply[:300]}")
+            logger.error("[%s] LLM error: %s", log_action_name, raw_reply[:300])
             break
 
         thinking, visible = agent.split_thinking(raw_reply)
@@ -233,7 +252,8 @@ def run_agent_loop(prompt: str, log_action_name: str, extra_history: list[dict] 
             # Truncate overly long tool outputs to prevent context pollution
             processed_results = []
             for tr in tool_results:
-                log_debug("TOOL", log_action_name, tr)
+                tr_trimmed = tr[:500] + " [...truncated]" if len(tr) > 500 else tr
+                logger.debug("[TOOL] [%s] %s", log_action_name, tr_trimmed)
                 if len(tr) > 2000:
                     tr = tr[:2000] + "\n\n[... tool output truncated to save context ...]"
                 processed_results.append(tr)
