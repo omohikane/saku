@@ -1,4 +1,4 @@
-"""Search Python source files in system tools and user tools."""
+"""Search Python source files in system_tools/ and user tools/."""
 
 import os
 import re as re_module
@@ -6,11 +6,6 @@ from pathlib import Path
 
 MAX_RESULTS = 20
 MAX_LINE_LENGTH = 150
-
-SEARCH_DIRS = [
-    "src/system_tools",
-    "tools",
-]
 
 SKIP_SUFFIXES = (".pyc",)
 SKIP_DIRS = ("__pycache__",)
@@ -27,9 +22,16 @@ def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     except re_module.error as e:
         return f"[ERROR] invalid regex: {e}"
 
+    code_root = Path(__file__).resolve().parent.parent  # _saku/src/
+    vault_root = code_root.parent                       # _saku/
+
+    search_targets = [
+        (code_root / "system_tools", vault_root),
+        (base / "tools", base),
+    ]
+
     results = []
-    for rel_dir in SEARCH_DIRS:
-        search_path = (base / rel_dir).resolve()
+    for search_path, display_base in search_targets:
         if not search_path.is_dir():
             continue
 
@@ -41,7 +43,10 @@ def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
                     continue
 
                 fpath = Path(root) / fname
-                rel = fpath.relative_to(base)
+                try:
+                    rel = fpath.relative_to(display_base)
+                except ValueError:
+                    continue
 
                 try:
                     content = fpath.read_text(encoding="utf-8", errors="replace")

@@ -9,7 +9,7 @@ _TIMEOUT = 30
 
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
-    test_dir = base / "src"
+    test_dir = Path(__file__).resolve().parent.parent
     test_file = test_dir / "test_saku.py"
 
     if not test_file.exists():
