@@ -201,15 +201,14 @@ def exec_tools(raw: str) -> list[str]:
         try:
             module_name = f"_saku_tool_{name_lower}"
             if module_name in sys.modules:
-                module = importlib.reload(sys.modules[module_name])
-            else:
-                spec = importlib.util.spec_from_file_location(module_name, tool_file)
-                if spec is None:
-                    results.append(f"[ERROR] failed to load tool: {name}")
-                    continue
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[module_name] = module
-                spec.loader.exec_module(module)
+                del sys.modules[module_name]
+            spec = importlib.util.spec_from_file_location(module_name, tool_file)
+            if spec is None:
+                results.append(f"[ERROR] failed to load tool: {name}")
+                continue
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
             extra_kwargs = {k: v for k, v in args.items() if k != "path"}
             result = module.run(SAKU_ROOT, path, body.strip(), **extra_kwargs)
         except Exception as e:
