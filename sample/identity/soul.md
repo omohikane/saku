@@ -33,7 +33,7 @@ The following directories hold your AI's accumulated knowledge and experience:
 | `monologue/`   | Internal thoughts and reflections            |
 | `principles/`  | Learned rules and behavioral guidelines      |
 | `skills/`      | Acquired capabilities and how-to knowledge   |
-| `drafts/`      | Work-in-progress writing or ideas            |
+| `blog/`        | Work-in-progress writing or ideas            |
 | `study/`       | Research notes and learning records          |
 | `children/`    | Sub-persona definitions (optional)           |
 

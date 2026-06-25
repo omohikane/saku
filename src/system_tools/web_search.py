@@ -59,7 +59,7 @@ class DDGLiteParser(HTMLParser):
         if self.link_depth > 0 or self.in_snippet_td:
             self.temp_text.append(data)
 
-def run(base: Path, path: str, body: str = "") -> str:
+def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     query = body.strip()
     if not query:
         return "[ERROR] Query is empty."

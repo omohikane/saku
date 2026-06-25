@@ -3,7 +3,7 @@
 from pathlib import Path
 import sys
 
-def run(base: Path, path: str, body: str = "") -> str:
+def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     """Switch LLM profile. Usage: [[SWITCH_PROFILE]] profile_name [[END]]"""
     profile_name = body.strip()
     

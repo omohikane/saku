@@ -52,7 +52,7 @@ def run_reflection(target_date: str = None) -> None:
 これらを分析し、以下のタスクを「自律的ツール実行」によって処理してください。
 1. 新たに得られた知見、教訓、Ownerから指摘されたルールがあれば、[[WRITE_FILE path="principles/ファイル名.md"]] を使用して新規保存、または既存の教訓ファイルを修正・削除・統合して整理（メモリのデフラグ）を行ってください。
 2. 自己モデル（meta.md）の各セクションに今日の活動結果を追記する。
-   ※ meta.mdは WRITE_FILE での上書きが禁止。[[APPEND_FILE path="meta.md"]] を使い、
+   ※ meta.mdは WRITE_FILE での上書きが禁止。[[APPEND_FILE path="meta.md" heading="最近の出来事"]] などを使い、
    「## 最近の出来事」「## 次にやりたいこと」などの見出し直後にリスト項目を追加する形式でのみ更新してください。
    見出し構造（## で始まる行）は絶対に変更・削除しないでください。
    

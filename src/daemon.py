@@ -31,10 +31,10 @@ MEMORY_ROOT = agent.MEMORY_ROOT
 _dcfg = agent._cfg.get("daemon", {})
 
 CHAT_FILE = MEMORY_ROOT / "chat.md"
-STATE_FILE = MEMORY_ROOT / "processed_inbox.json"
-CHAT_STATE_FILE = MEMORY_ROOT / "chat_state.json"
+STATE_FILE = MEMORY_ROOT / "state/processed_inbox.json"
+CHAT_STATE_FILE = MEMORY_ROOT / "state/chat_state.json"
 REQUEST_FILE = MEMORY_ROOT / "request_list.md"
-LOG_FILE = MEMORY_ROOT / "saku.log"
+LOG_FILE = MEMORY_ROOT / "state/saku.log"
 
 CHAT_POLL_SECONDS = _dcfg.get("chat_poll_seconds", 5)
 INBOX_POLL_SECONDS = _dcfg.get("inbox_poll_seconds", 3600)
@@ -52,6 +52,7 @@ def log_debug(level: str, context: str, message: str) -> None:
         message = message[:500] + " [...truncated]"
     line = f"[{now}] [{level}] [{context}] {message}\n"
     try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         with LOG_FILE.open("a", encoding="utf-8") as f:
             f.write(line)
     except Exception as e:
@@ -93,6 +94,7 @@ def load_chat_state() -> dict:
         return default_state
 
 def save_chat_state(state: dict) -> None:
+    CHAT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     CHAT_STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 def reset_chat_file() -> None:
@@ -479,7 +481,7 @@ def archive_chat() -> None:
 
 1. 新しい教訓や重要な気づきがあれば [[WRITE_FILE path="principles/{today}-chat-archive.md"]] に記録する。
 2. 自己モデル（meta.md）の「最近の出来事」セクションに今日のchat概要を1行追記する。
-   ※重要: meta.mdは WRITE_FILE での上書きが禁止されています。必ず [[APPEND_FILE path="meta.md"]] を使い、
+   ※重要: meta.mdは WRITE_FILE での上書きが禁止されています。必ず [[APPEND_FILE path="meta.md" heading="最近の出来事"]] を使い、
    既存の「## 最近の出来事」セクションの末尾に「- {today}: （概要）」の形式で1行だけ追記してください。
    見出し構造（## で始まる行）は絶対に変更・削除しないでください。
 3. すべて完了したら「[ARCHIVE_DONE]」と出力してください。
@@ -499,6 +501,7 @@ def load_processed_state() -> dict:
         return {}
 
 def save_processed_state(state: dict) -> None:
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 def check_inbox_and_process() -> None:
@@ -555,7 +558,7 @@ def check_autonomous_tick() -> None:
 
 3. 自己モデルの調整:
    meta.md を [[READ_FILE path="meta.md"]] で読み込み、「次にやりたいこと」に更新が必要であれば
-   [[APPEND_FILE path="meta.md"]] で追記してください（WRITE_FILEでの上書きは禁止です）。
+   [[APPEND_FILE path="meta.md" heading="次にやりたいこと"]] で追記してください（WRITE_FILEでの上書きは禁止です）。
 
 特に行うべき自律タスクがない場合は、最終出力として「[NO_ACTION]」とだけ出力してください。
 """

@@ -11,17 +11,19 @@ graph TD
     Owner[Owner / User] <-->|chat.md / saku_core.py| Core[saku_core.py]
     Daemon[daemon.py] <-->|polls & checks| Core
     Daemon -->|triggers reflection| Reflect[reflect.py]
-    Core -->|uses| Tools[src/tools/*]
+    Core -->|uses| Tools[src/system_tools/*]
     
     subgraph Memory Root (e.g. Obsidian Vault)
         ChatFile[chat.md]
         Journal[journal/ Daily logs]
         Monologue[monologue/ Self reflection]
         Principles[principles/ Learned lessons]
-        Drafts[drafts/ Blogs & Documents]
+        Blog[blog/ Working drafts]
         Study[study/ Sandboxed coding]
+        Tools[memory/tools/ SAKU-created tools]
         Meta[meta.md Self-model]
-        State[processed_inbox.json & chat_state.json]
+        State[state/ processed_inbox.json, chat_state.json, saku.log]
+        Identity[identity/ soul.md & genome.md]
     end
     
     Core <-->|Read/Write| Memory
@@ -39,13 +41,14 @@ graph TD
   - `saku_core.py`: The agent's brain. Orchestrates system prompts, formats LLM requests, handles tool calling, and drives the interactive terminal.
   - `daemon.py`: The background scheduler that triggers autonomous tasks, processes Obsidian inputs, runs reflections, and monitors conversations.
   - `reflect.py`: Triggered daily to aggregate the day's experiences, extract lessons, and update `meta.md`.
-  - `tools/`: Auto-discovered plugins that SAKU can call dynamically.
+  - `system_tools/`: Auto-discovered system plugins that SAKU can call dynamically.
 - **`memory/`**: The directory representing SAKU's long-term memory.
   - `journal/`: Logs of conversations and autonomous actions.
   - `monologue/`: SAKU's inner thoughts and research motivations.
   - `principles/`: Deduced insights, guidelines, and lessons.
-  - `drafts/`: Working drafts of blogs and other output files.
+  - `blog/`: Working drafts of blogs and other output files.
   - `study/`: Sandbox for running Python code experiments.
+  - `tools/`: SAKU's own user-created tools (created at runtime, override system_tools/).
 
 ---
 
@@ -55,10 +58,11 @@ To ensure that a local autonomous agent does not harm your system, SAKU incorpor
 
 1. **Path Scoping**:
    - The file I/O tools (`read_file`, `write_file`, `list_dir`, `search_notes`) enforce strict path scoping.
-   - SAKU is restricted to write only in allowed memory sub-directories: `drafts/`, `monologue/`, `principles/`, `skills/`, `tools/`, `meta.md`, `chat.md`, and `study/`.
-   - Modifying `genome.md` or writing files outside of the configured memory directory is blocked.
+   - SAKU is restricted to write only in allowed memory sub-directories: `blog/`, `monologue/`, `principles/`, `skills/`, `tools/`, `chat.md`, `study/`, `journal/`, `request_list.md`.
+   - Modifying `meta.md`, `genome.md`, or writing to `src/` and `identity/` is blocked.
 2. **Dynamic Tool Loading**:
-   - Tools are dynamically loaded from `src/tools/` at runtime. SAKU can self-debug and patch tools in this folder, but only if they remain inside the memory scope limit.
+   - System tools are dynamically loaded from `src/system_tools/` at runtime.
+   - SAKU can create and modify its own tools in `memory/tools/`, which take priority over system tools with the same name.
 3. **Isolated Code Execution**:
    - The `EXECUTE_CODE` tool executes Python code in a separate subprocess.
    - It runs inside `memory/study/` to prevent cluttering other folders.

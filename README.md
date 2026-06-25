@@ -102,17 +102,24 @@ src/
   saku_core.py         # Agent core engine (LLM calls, tool dispatcher, prompt builder)
   daemon.py            # Background process (polling, autonomous ticks, nightly summaries)
   reflect.py           # Nightly reflection script (updates meta.md)
-  tools/               # Auto-discovered tool plugins
+  system_tools/        # System-level tool plugins (read-only for SAKU)
+
+sample/                # Template files to copy when setting up a vault
+  identity/
+  memory/
 
 memory/                # SAKU's memory store (plain Markdown files)
   meta.md              # Current self-model (ignored)
+  identity/soul.md     # Core identity / soul definition
   journal/             # Conversation and activity logs
   monologue/           # Agent's inner thoughts
   principles/          # Accumulated rules and guidelines
-  drafts/              # Work in progress (e.g. blog drafts)
+  blog/                # Work in progress (e.g. blog drafts)
   skills/              # Custom skill descriptions
   children/            # Child agent definitions
   study/               # Sandboxed coding environment
+  tools/               # SAKU's own user-created tools (created at runtime)
+  state/               # Runtime state files (saku.log, chat_state.json, etc.)
 
 config.toml            # User configurations (ignored)
 config.example.toml    # Configuration template (tracked)
@@ -156,10 +163,14 @@ The `>` acts as a send trigger to prevent accidental replies while you are typin
 
 ## Extending with Tools
 
-Add capabilities by dropping a Python script into `src/tools/`:
+There are two layers of tool extensibility:
+
+### System Tools (built-in, read-only for SAKU)
+
+Drop a Python script into `src/system_tools/` to add a new capability visible to SAKU:
 
 ```python
-# src/tools/my_tool.py
+# src/system_tools/my_tool.py
 from pathlib import Path
 
 def run(base: Path, path: str, body: str = "") -> str:
@@ -176,6 +187,10 @@ input arguments here
 ```
 
 No registration is needed. Tools are loaded dynamically at runtime. See [docs/TOOLS.md](docs/TOOLS.md).
+
+### SAKU's Own Tools (created by SAKU at runtime)
+
+SAKU can create and modify its own tools inside `memory/tools/` using `WRITE_FILE`. These take priority over built-in system tools with the same name, allowing SAKU to override or extend capabilities autonomously.
 
 ---
 

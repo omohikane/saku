@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-def run(base: Path, path: str, body: str = "") -> str:
+def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     """Execute arbitrary Python code block provided by SAKU inside the study directory.
 
     Expects python code block in the body.

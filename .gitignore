@@ -32,28 +32,27 @@ identity/genome.md
 !identity/genome.template.md
 
 # Runtime state (machine-local, auto-generated)
-src/chat_state.json
-src/processed_inbox.json
-memory/chat_state.json
-memory/processed_inbox.json
+memory/state/
 
 # Personal memory data (do NOT commit your own data)
 memory/journal/
 memory/monologue/
 memory/principles/
 memory/drafts/
+memory/blog/
 memory/study/
 memory/skills/
 memory/children/
 memory/tools/
 memory/meta.md
 memory/chat.md
+memory/identity/
+memory/core/
 
 # Keep empty directory markers
 !memory/journal/.gitkeep
 !memory/monologue/.gitkeep
 !memory/principles/.gitkeep
-!memory/drafts/.gitkeep
 !memory/study/.gitkeep
 !memory/skills/.gitkeep
 !memory/children/.gitkeep

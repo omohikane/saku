@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-def run(base: Path, path: str = "", body: str = "") -> str:
+def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     query = body.strip().lower()
     if not query:
         return "[ERROR] search query is empty"

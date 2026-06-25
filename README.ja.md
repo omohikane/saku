@@ -120,17 +120,24 @@ src/
   saku_core.py         # エージェントエンジン（LLM呼び出し・ツール実行・プロンプト構築）
   daemon.py            # バックグラウンドプロセス（ポーリング・自律ティック・夜間振り返り）
   reflect.py           # 夜間の日次サマリーと自己モデル更新
-  tools/               # 拡張可能なツールプラグイン（ファイルを置くだけで有効）
+  system_tools/        # システムツール（朔は読取専用）
+
+sample/                # Obsidianセットアップ用テンプレート
+  identity/
+  memory/
 
 memory/                # エージェントの記憶（プレーンなMarkdown）
   meta.md              # 自己モデル（.gitignore済み）
+  identity/soul.md     # コアアイデンティティ
   journal/             # 日記・行動ログ
   monologue/           # 独り言・内省
   principles/          # 学んだ教訓
-  drafts/              # 作業中のドキュメント
+  blog/                # ブログ下書き
   skills/              # 獲得したスキル定義
   children/            # 子AIの定義
   study/               # コード実験サンドボックス
+  tools/               # 朔の自作ツール（実行時に作成される）
+  state/               # 状態ファイル（saku.log, chat_state.json 等）
 
 config.toml            # ユーザー設定（.gitignore済み）
 config.example.toml    # 設定例（公開）
@@ -174,10 +181,14 @@ config.example.toml    # 設定例（公開）
 
 ## Extending with Tools
 
-`src/tools/` に Python ファイルを追加するだけで新しいツールを使えます：
+ツールには2つの階層があります。
+
+### システムツール（内蔵、朔は読取専用）
+
+`src/system_tools/` に Python ファイルを追加するだけで新しいツールを使えます：
 
 ```python
-# src/tools/my_tool.py
+# src/system_tools/my_tool.py
 from pathlib import Path
 
 def run(base: Path, path: str, body: str = "") -> str:
@@ -193,8 +204,13 @@ input here
 [[END]]
 ```
 
-登録不要。`src/tools/` に置くだけで動的にロードされます。
+登録不要。`src/system_tools/` に置くだけで動的にロードされます。
 詳細は [docs/TOOLS.md](docs/TOOLS.md)。
+
+### 朔の自作ツール（実行時に朔が作成）
+
+朔は `WRITE_FILE` を使って `memory/tools/` 配下に自分でツールを作成・改変できます。
+システムツールより優先して読み込まれるため、既存のツールを上書きして能力を拡張することも可能です。
 
 ---
 

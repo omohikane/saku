@@ -162,9 +162,14 @@ def split_thinking(text: str) -> tuple[str, str]:
 def exec_tools(raw: str) -> list[str]:
     """Parse and execute [[TOOL ...]] blocks in SAKU's output dynamically.
     Also validates that all start tags of valid tools are properly closed.
+
+    Tool lookup order:
+      1. MEMORY_ROOT / "tools" / name.py   (SAKU's own tools)
+      2. CODE_ROOT / "system_tools" / name.py  (system tools)
     """
     import sys
     import traceback
+    import importlib.util
     results: list[str] = []
 
     # Find all start tags of valid tools to check for syntax errors
@@ -178,9 +183,13 @@ def exec_tools(raw: str) -> list[str]:
         start_idx, end_idx = m.start(), m.end()
         parsed_ranges.append((start_idx, end_idx))
 
-        # Tools live in src/tools/, not in the memory root
-        tool_module_name = f"tools.{name.lower()}"
-        tool_file = CODE_ROOT / "tools" / f"{name.lower()}.py"
+        name_lower = name.lower()
+
+        # 1. Check SAKU's own tools (memory/tools/) first
+        tool_file = MEMORY_ROOT / "tools" / f"{name_lower}.py"
+        # 2. Fall back to system tools (src/system_tools/)
+        if not tool_file.exists():
+            tool_file = CODE_ROOT / "system_tools" / f"{name_lower}.py"
 
         if not tool_file.exists():
             results.append(f"[ERROR] unknown tool: {name}")
@@ -190,11 +199,19 @@ def exec_tools(raw: str) -> list[str]:
         path = args.get("path", "")
 
         try:
-            if tool_module_name in sys.modules:
-                module = importlib.reload(sys.modules[tool_module_name])
+            module_name = f"_saku_tool_{name_lower}"
+            if module_name in sys.modules:
+                module = importlib.reload(sys.modules[module_name])
             else:
-                module = importlib.import_module(tool_module_name)
-            result = module.run(SAKU_ROOT, path, body.strip())
+                spec = importlib.util.spec_from_file_location(module_name, tool_file)
+                if spec is None:
+                    results.append(f"[ERROR] failed to load tool: {name}")
+                    continue
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[module_name] = module
+                spec.loader.exec_module(module)
+            extra_kwargs = {k: v for k, v in args.items() if k != "path"}
+            result = module.run(SAKU_ROOT, path, body.strip(), **extra_kwargs)
         except Exception as e:
             result = f"[ERROR] {e}\n{traceback.format_exc()}"
 
@@ -203,9 +220,13 @@ def exec_tools(raw: str) -> list[str]:
     # Check for unclosed/malformed tool calls
     for start_match in starts:
         name = start_match.group(1)
-        tool_file = CODE_ROOT / "tools" / f"{name.lower()}.py"
-        # Only check tools that actually exist in tools/
-        if not tool_file.exists():
+        name_lower = name.lower()
+        # Check both tool locations
+        tool_candidates = [
+            MEMORY_ROOT / "tools" / f"{name_lower}.py",
+            CODE_ROOT / "system_tools" / f"{name_lower}.py",
+        ]
+        if not any(p.exists() for p in tool_candidates):
             continue
 
         start_pos = start_match.start()
@@ -216,7 +237,6 @@ def exec_tools(raw: str) -> list[str]:
                 break
 
         if not inside_parsed:
-            # Tool call was started but failed to parse completely
             has_end = "[[END]]" in raw[start_pos:]
             if not has_end:
                 results.append(f"[ERROR] Tool [[{name}]] was not closed with [[END]]. Every tool call block must end with [[END]] on its own line.")
@@ -231,7 +251,7 @@ def build_system_prompt() -> str:
     """Build system prompt from SAKU's identity files."""
     # genome lives in identity/ next to config.toml
     genome_path = CODE_ROOT.parent / "identity" / "genome.md"
-    soul = load_file(MEMORY_ROOT / "core/soul.md")
+    soul = load_file(MEMORY_ROOT / "identity/soul.md")
     genome = compress(load_file(genome_path), MAX_GENOME_CHARS)
     meta = load_file(MEMORY_ROOT / "meta.md")
     principles = load_dir(MEMORY_ROOT / "principles")
@@ -269,13 +289,18 @@ def build_system_prompt() -> str:
                 "[[END]]\n"
                 "\n"
                 "To write a file:\n"
-                '[[WRITE_FILE path="drafts/example.md"]]\n'
+                '[[WRITE_FILE path="blog/example.md"]]\n'
                 "file content here\n"
                 "[[END]]\n"
                 "\n"
                 "To append content to a file (use this for logging thoughts, learning notes to prevent overwriting):\n"
                 '[[APPEND_FILE path="monologue/2026-06-18.md"]]\n'
                 "- new thought item\n"
+                "[[END]]\n"
+                "\n"
+                "To append content under a specific ## heading section (e.g., in meta.md):\n"
+                '[[APPEND_FILE path="meta.md" heading="最近の出来事"]]\n'
+                "- 2026-06-18: chatでしたことの要約\n"
                 "[[END]]\n"
                 "\n"
                 "To search files using keywords:\n"
@@ -309,10 +334,53 @@ def build_system_prompt() -> str:
                 "- 通常のタスクはローカルLLM（local）で十分です。\n"
                 "- プロファイル切り替えはAPIキーが設定されている場合のみ有効です。\n"
                 "\n"
+                "To delete an unwanted file:\n"
+                '[[DELETE_FILE path="study/old_test.py"]]\n'
+                "[[END]]\n"
+                "\n"
+                "DELETE_FILE rules:\n"
+                "- `meta.md`, `chat.md`, `request_list.md`, `src/system_tools/*` は削除できません\n"
+                "\n"
+                "To fetch and read a full web page:\n"
+                '[[FETCH_URL url="https://example.com/article"]]\n'
+                "[[END]]\n"
+                "\n"
+                "To run the SAKU test suite:\n"
+                "[[RUN_TESTS]]\n"
+                "[[END]]\n"
+                "\n"
+                "To move or rename a file:\n"
+                '[[MOVE_FILE from="study/old.py" to="study/archive/old.py"]]\n'
+                "[[END]]\n"
+                "\n"
+                "To search Python source code in system_tools/ and tools/:\n"
+                "[[GREP_CODE]]\n"
+                "def run\n"
+                "[[END]]\n"
+                "\n"
+                "To run limited git commands (status, diff, add, commit, log, branch only):\n"
+                "[[GIT]]\n"
+                "status\n"
+                "[[END]]\n"
+                "\n"
+                "GIT rules:\n"
+                "- allowed: status, diff, add, commit, log, branch\n"
+                "- push, pull, fetch, reset, checkout 等は禁止\n"
+                "- `git add` 後の `git commit` で変更が記録されます\n"
+                "\n"
+                "To make external HTTP API calls:\n"
+                '[[API_CALL method="GET" url="https://api.github.com/repos/..."]]\n'
+                "[[END]]\n"
+                "\n"
+                "API_CALL rules:\n"
+                "- method: GET (default) or POST\n"
+                "- POSTはbodyにJSONを書いて送信する\n"
+                "- private/localhostへのアクセスはブロックされます\n"
+                "\n"
                 "## Tool Rules\n"
                 "- path is relative to _saku/\n"
-                "- Write allowed: drafts/, monologue/, principles/, skills/, tools/, meta.md, chat.md, study/, journal/, request_list.md\n"
-                "- Write denied: genome.md, core/\n"
+                "- Write allowed: blog/, monologue/, principles/, skills/, tools/, chat.md, study/, journal/, request_list.md\n"
+                "- Write denied: meta.md, genome.md, src/, identity/\n"
                 "- Read/List allowed: Vault全体（_saku/ 内および `../` を経由した他ディレクトリも読取可）\n"
                 "- Do not assume success — wait for [OK] or file content\n"
                 "- Tool format must be exact. Do not improvise.\n"
@@ -333,7 +401,7 @@ def build_system_prompt() -> str:
             "# Blog Publishing Workflow",
             (
                 "## ブログ下書きのフォーマット\n"
-                "- 全ての下書きは `drafts/` 配下に保存する\n"
+                "- 全ての下書きは `blog/` 配下に保存する\n"
                 "- YAML Frontmatterを先頭に必ず付属する\n"
                 "  ```\n"
                 "  ---\n"

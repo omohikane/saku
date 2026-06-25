@@ -3,20 +3,24 @@
 from pathlib import Path
 
 ALLOWED_PREFIXES = [
-    "drafts/",
+    "blog/",
     "journal/",
     "monologue/",
     "principles/",
     "skills/",
-    "core/",
+    "identity/",
     "children/",
-    "",  # _saku/ root
+    "src/",
+    "tools/",
+    "state/",
+    "study/",
+    "",
 ]
 
 
 import os
 
-def run(base: Path, path: str = "", body: str = "") -> str:
+def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     vault_root = base.parent if base.name == "_saku" else base
     target = (base / path).resolve() if path else base.resolve()
 

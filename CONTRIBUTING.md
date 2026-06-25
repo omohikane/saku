@@ -6,12 +6,12 @@ Thank you for your interest in contributing to SAKU! We welcome all contribution
 
 - **Keep it simple:** Avoid adding heavy external dependencies. SAKU values local execution with standard libraries as much as possible. Currently, only `requests` and Python standard libraries are used.
 - **Maintain docstrings and comments:** Explain the logic clearly. Keep comments concise and informative.
-- **Unified Tool Signature:** All tool plugins in `src/tools/` must implement a `run(base: Path, path: str, body: str) -> str` signature.
+- **Unified Tool Signature:** All tool plugins in `src/system_tools/` must implement a `run(base: Path, path: str, body: str, **kwargs) -> str` signature.
 - **Safety first:** Ensure file operations do not access directories outside the allowed scope of the vault or memory root.
 
 ## Adding a New Tool
 
-1. Create a Python file under `src/tools/` (e.g. `src/tools/my_tool.py`).
+1. Create a Python file under `src/system_tools/` (e.g. `src/system_tools/my_tool.py`).
 2. Implement the entrypoint function:
    ```python
    from pathlib import Path
