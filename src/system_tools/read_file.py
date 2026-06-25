@@ -20,15 +20,23 @@ ALLOWED_PREFIXES = [
     "request_list.md",
 ]
 
+_CODE_ROOT = Path(__file__).resolve().parent.parent
+
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     if not any(path.startswith(p) for p in ALLOWED_PREFIXES):
         return f"[DENY] cannot read from: {path}"
 
-    vault_root = base.parent if base.name == "_saku" else base
-    target = (base / path).resolve()
-    if not target.is_relative_to(vault_root.resolve()):
-        return "[DENY] scope outside vault"
+    if path.startswith("src/"):
+        vault = _CODE_ROOT.parent
+        target = (vault / path).resolve()
+        if not target.is_relative_to(vault.resolve()):
+            return "[DENY] scope outside vault"
+    else:
+        vault = base.parent if base.name == "_saku" else base
+        target = (base / path).resolve()
+        if not target.is_relative_to(vault.resolve()):
+            return "[DENY] scope outside vault"
 
     if not target.exists():
         return f"[ERROR] not found: {path}"

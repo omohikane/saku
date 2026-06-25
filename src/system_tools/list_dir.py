@@ -1,5 +1,6 @@
 """List files and directories within _saku/."""
 
+import os
 from pathlib import Path
 
 ALLOWED_PREFIXES = [
@@ -17,15 +18,20 @@ ALLOWED_PREFIXES = [
     "",
 ]
 
+_CODE_ROOT = Path(__file__).resolve().parent.parent
 
-import os
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
-    vault_root = base.parent if base.name == "_saku" else base
-    target = (base / path).resolve() if path else base.resolve()
-
-    if not target.is_relative_to(vault_root.resolve()):
-        return "[DENY] scope outside vault"
+    if path.startswith("src/"):
+        vault = _CODE_ROOT.parent
+        target = (vault / path).resolve() if path else vault.resolve()
+        if not target.is_relative_to(vault.resolve()):
+            return "[DENY] scope outside vault"
+    else:
+        vault = base.parent if base.name == "_saku" else base
+        target = (base / path).resolve() if path else base.resolve()
+        if not target.is_relative_to(vault.resolve()):
+            return "[DENY] scope outside vault"
 
     if not target.exists():
         return f"[ERROR] not found: {path or '.'}"
