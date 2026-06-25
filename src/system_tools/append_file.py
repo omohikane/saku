@@ -1,7 +1,7 @@
 """Append content to a file within _saku/ (restricted paths only).
 
 Supports optional heading parameter: when specified, content is inserted
-directly after the matching ## heading line, before the next ## heading.
+directly after the matching ## heading line, before the next ## or ### heading.
 """
 
 import re
@@ -29,6 +29,9 @@ def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
 
     heading = kwargs.get("heading", "").strip()
 
+    if path == "meta.md" and not heading:
+        return "[ERROR] meta.md requires heading= parameter to specify which ## section to append to"
+
     if not any(path.startswith(p) for p in ALLOWED_PREFIXES):
         return f"[DENY] cannot append to: {path}"
 
@@ -46,7 +49,8 @@ def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
         m = pattern.search(content)
         if m:
             insert_pos = m.end()
-            next_heading = re.search(r"^##\s+", content[insert_pos:], re.MULTILINE)
+            # Look for next ## or ### heading after the matched section
+            next_heading = re.search(r"^(##|###)\s+", content[insert_pos:], re.MULTILINE)
             if next_heading:
                 insert_pos += next_heading.start()
             else:
