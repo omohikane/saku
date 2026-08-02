@@ -80,15 +80,18 @@ For a detailed setup guide, please refer to [docs/SETUP.md](docs/SETUP.md).
 
 ## Defining Your Agent
 
-The core of SAKU is `identity/genome.md`. This is where you write your agent's personality.
+The core of SAKU is `genome.md` — the user-authored personality. The master copy
+lives in your vault: `memory/identity/genome.md` (or `vault_root/identity/genome.md`
+for the Obsidian layout). The repo's `identity/genome.md` is only a sample/fallback
+for fresh clones.
 
-1. **Start from the template**:
+1. **Start from the template** (if your vault has no genome yet):
    ```bash
-   cp identity/genome.template.md identity/genome.md
+   cp identity/genome.template.md memory/identity/genome.md
    ```
 2. **Define the basics**: Fill out the `{{AGENT_NAME}}`, `{{OWNER_NAME}}`, core values, forbidden phrases, and communication styles.
 3. **Reference the example**: An example definition for the reference agent "Saku" is available at [identity/examples/saku.md](identity/examples/saku.md).
-4. **Keep it private**: `genome.md` is included in `.gitignore` by default. Your agent's core values are yours alone.
+4. **Keep it private**: `genome.md` is excluded from git by default. Your agent's core values are yours alone.
 
 ---
 

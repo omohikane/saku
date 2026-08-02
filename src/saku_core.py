@@ -193,9 +193,12 @@ def _build_static_sections() -> str:
 
     Growth-related parts (meta.md, principles/, skills/) are built fresh in
     ``_build_volatile_sections`` so they reflect immediately.
+
+    genome.md is the user-authored core identity. The master lives in the vault:
+    ``memory/identity/genome.md`` (or ``vault_root/identity/genome.md``), with the
+    repo ``identity/genome.md`` as a sample/fallback for fresh clones.
     """
-    # genome lives in identity/ next to config.toml
-    genome_path = CODE_ROOT.parent / "identity" / "genome.md"
+    genome_path = _find_genome_path()
     soul = load_file(MEMORY_ROOT / "identity/soul.md")
     genome = compress(load_file(genome_path), MAX_GENOME_CHARS)
 
@@ -432,6 +435,23 @@ def _build_static_sections() -> str:
     )
 
     return "\n\n".join(f"{title}\n{body}" for title, body in sections if body)
+
+
+def _find_genome_path() -> Path:
+    """Resolve genome.md. Priority: vault memory -> vault root -> repo identity.
+
+    The repo's identity/genome.md is only a sample; the personal master lives in
+    the vault (memory/identity/ or the vault root identity/).
+    """
+    candidates = [
+        MEMORY_ROOT / "identity" / "genome.md",
+        MEMORY_ROOT.parent / "identity" / "genome.md",
+        CODE_ROOT.parent / "identity" / "genome.md",
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    return candidates[-1]
 
 
 # ── Chat API (streaming) ────────────────────────────────

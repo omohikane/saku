@@ -81,12 +81,15 @@ python -m saku.ui --no-daemon  # Web UIのみ（自動ループなし）
 
 ## Defining Your Agent
 
-SAKUの本体は `identity/genome.md`。ここにエージェントの人格を書きます。
+SAKUの本体は `genome.md`。ここにエージェントの人格を書きます。
+**マスターはvault側**（`memory/identity/genome.md`、またはObsidian構成では
+`vault_root/identity/genome.md`）に置きます。リポジトリの `identity/genome.md` は
+新規クローン用のサンプル/フォールバックです。
 
 ### 1. テンプレートから開始
 
 ```bash
-cp identity/genome.template.md identity/genome.md
+cp identity/genome.template.md memory/identity/genome.md
 ```
 
 `{{AGENT_NAME}}` `{{OWNER_NAME}}` などのプレースホルダを書き換えていきます。
