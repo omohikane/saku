@@ -1,7 +1,7 @@
-"""設定の読み込み・解決・バリデーション。
+"""Config loading, resolution, and validation.
 
-config.toml はリポジトリルート（saku/ の親）から読み込む。
-LLM設定は per-call で渡すための ``LlmConfig`` を提供する。
+Reads config.toml from the repo root (the parent of saku/).
+Provides ``LlmConfig`` to pass LLM settings per call.
 """
 
 import os
@@ -13,11 +13,11 @@ import tomllib
 CODE_ROOT = Path(__file__).resolve().parent
 
 
-# ── 設定読み込み ─────────────────────────────────────────
+# ── Config Loading ──────────────────────────────────────
 def load_config() -> tuple[dict, Path]:
-    """config.toml を読み込み、 (設定dict, 設定ベースディレクトリ) を返す。
+    """Load config.toml and return (config dict, config base directory).
 
-    config.toml が無ければ config.example.toml にフォールバックする。
+    Falls back to config.example.toml if config.toml is missing.
     """
     base = CODE_ROOT.parent
     for name in ("config.toml", "config.example.toml"):
@@ -29,7 +29,7 @@ def load_config() -> tuple[dict, Path]:
 
 
 def resolve_memory_root(cfg: dict, config_base: Path) -> Path:
-    """memory root を解決する。相対パスは設定ベース基準、絶対パスはそのまま。"""
+    """Resolve the memory root. Relative paths are relative to the config base; absolute paths pass through."""
     rel = cfg.get("memory", {}).get("root", "memory")
     path = Path(rel)
     if path.is_absolute():
@@ -37,17 +37,17 @@ def resolve_memory_root(cfg: dict, config_base: Path) -> Path:
     return (config_base / rel).resolve()
 
 
-# ── LLM 設定 ────────────────────────────────────────────
+# ── LLM Config ──────────────────────────────────────────
 @dataclass
 class LlmConfig:
-    """1回のLLM呼び出しに必要な設定。グローバルではなく per-call で渡す。"""
+    """Settings needed for a single LLM call. Passed per call, not global."""
 
     name: str = ""
     api_url: str = ""
     api_key: str = ""
     model: str = ""
-    context_window: int = 0  # 0 = 不明（サーバの -c 値）
-    working_budget_tokens: int = 0  # 0 = 不明（エージェントの作業予算）
+    context_window: int = 0  # 0 = unknown (the server's -c value)
+    working_budget_tokens: int = 0  # 0 = unknown (the agent's working budget)
 
     @property
     def is_configured(self) -> bool:
@@ -61,7 +61,7 @@ def _env_api_key(profile_name: str) -> str:
 
 
 def load_profile(cfg: dict, name: str) -> "LlmConfig | None":
-    """名前付きプロファイルを読み込む。存在しなければ None。"""
+    """Load a named profile. Returns None if it does not exist."""
     profiles = cfg.get("llm", {}).get("profiles", {})
     prof = profiles.get(name)
     if prof is None:
@@ -77,7 +77,7 @@ def load_profile(cfg: dict, name: str) -> "LlmConfig | None":
 
 
 def load_active_llm(cfg: dict) -> LlmConfig:
-    """active_profile を解決する。無ければレガシー設定（api_url/api_key/model）にフォールバック。"""
+    """Resolve the active profile. Falls back to legacy settings (api_url/api_key/model)."""
     active = cfg.get("llm", {}).get("active_profile", "")
     if active:
         llm = load_profile(cfg, active)
@@ -94,10 +94,10 @@ def load_active_llm(cfg: dict) -> LlmConfig:
 
 
 def load_llm_instance(cfg: dict, name: str = "main") -> LlmConfig:
-    """[llm.instances] の名前付きインスタンスを解決する。
+    """Resolve a named instance from [llm.instances].
 
-    インスタンスはプロファイルを参照し、インスタンス固有の上書きを持てる。
-    インスタンス定義が無ければ active_profile にフォールバックする。
+    Instances reference a profile and may override instance-specific settings.
+    Falls back to the active profile when the instance is not defined.
     """
     instances = cfg.get("llm", {}).get("instances", {})
     inst = instances.get(name, {})
@@ -115,31 +115,31 @@ def load_llm_instance(cfg: dict, name: str = "main") -> LlmConfig:
     return llm
 
 
-# ── コンテキスト設定（Phase B で使用）──────────────────────
-# 作業予算が未設定（working_budget_tokens = 0）のときの既定値。
-# 8K コンテキスト前提で約半分、と VRAM/RAM 制約を踏まえた安全側の値。
+# ── Context Config (used in Phase B) ────────────────────
+# Default working budget when unset (working_budget_tokens = 0).
+# About half of an 8K context, a safe value considering VRAM/RAM constraints.
 DEFAULT_WORKING_BUDGET_TOKENS = 4096
 
 
 @dataclass
 class ContextConfig:
-    compaction_trigger: float = 0.7  # 予算の何割で自動コンパクションするか
-    keep_recent_tokens: int = 2000  # コンパクション後に保持する直近トークン数
-    prune_tool_results: bool = True  # 古いツール結果を縮小/削除するか
-    max_tool_result_chars: int = 2000  # ツール結果を残す最大文字数
+    compaction_trigger: float = 0.7  # fraction of budget that triggers compaction
+    keep_recent_tokens: int = 5000  # recent tokens kept after compaction
+    prune_tool_results: bool = True  # whether to shrink/remove old tool results
+    max_tool_result_chars: int = 2000  # max chars kept for a tool result
 
 
 def load_context_config(cfg: dict) -> ContextConfig:
     c = cfg.get("context", {})
     return ContextConfig(
         compaction_trigger=c.get("compaction_trigger", 0.7),
-        keep_recent_tokens=c.get("keep_recent_tokens", 2000),
+        keep_recent_tokens=c.get("keep_recent_tokens", 5000),
         prune_tool_results=c.get("prune_tool_results", True),
         max_tool_result_chars=c.get("max_tool_result_chars", 2000),
     )
 
 
-# ── チャネル設定（Phase B で使用）────────────────────────
+# ── Channel Config (used in Phase B) ────────────────────
 @dataclass
 class ChannelsConfig:
     enabled: list[str] = field(default_factory=lambda: ["webui", "chatmd"])

@@ -46,7 +46,7 @@ MEMORY_ROOT = saku_config.resolve_memory_root(_cfg, _config_base)
 
 SAKU_ROOT = MEMORY_ROOT  # alias kept for backward-compat with tools
 
-# LLM 設定は per-call で渡す。グローバルは既存ツール/モジュールとの互換のため残す。
+# LLM settings are passed per-call. The globals are kept for compatibility with existing tools/modules.
 def _load_llm_config() -> tuple[str, str, str]:
     """Load LLM config from active profile or fallback to legacy settings."""
     llm = saku_config.load_active_llm(_cfg)
@@ -69,6 +69,9 @@ def switch_llm_profile(profile_name: str) -> str:
     return f"[OK] Switched to profile: {profile_name} (API: {API_URL}, Model: {MODEL_NAME})"
 
 MAX_GENOME_CHARS = 3000
+MAX_META_CHARS = 4000
+MAX_PRINCIPLES_CHARS = 5000
+MAX_SKILLS_CHARS = 3000
 MAX_HISTORY_MESSAGES = _cfg.get("agent", {}).get("max_history_messages", 30)
 
 
@@ -90,6 +93,32 @@ def load_dir(d: Path) -> str:
     return "\n\n".join(parts)
 
 
+def load_recent_dir(d: Path, limit: int) -> str:
+    """Concatenate .md files starting from the most recently updated, up to a total of limit chars.
+
+    Bounded loading to keep the system prompt from being crowded even as memory grows.
+    When more detail is needed, it is meant to be retrieved via SEARCH_NOTES.
+    """
+    if not d.is_dir():
+        return ""
+    files = sorted(d.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+    parts = []
+    total = 0
+    for f in files:
+        content = f.read_text(encoding="utf-8").strip()
+        if not content:
+            continue
+        entry = f"### {f.stem}\n{content}"
+        if total + len(entry) > limit:
+            room = limit - total
+            if room > 100:
+                parts.append(entry[:room] + "\n[... truncated]")
+            break
+        parts.append(entry)
+        total += len(entry)
+    return "\n\n".join(parts)
+
+
 def compress(text: str, limit: int) -> str:
     """Truncate with marker if too long."""
     if len(text) <= limit:
@@ -107,7 +136,7 @@ def split_thinking(text: str) -> tuple[str, str]:
 def exec_tools(raw: str) -> list[str]:
     """Parse and execute [[TOOL ...]] blocks in SAKU's output dynamically.
 
-    ※ 実装は saku/transport.py へ委譲（メモリルート・コードルートを解決して渡す）。
+    Implementation is delegated to saku/transport.py (resolves memory root and code root and passes them).
     """
     return _exec_tools(raw, MEMORY_ROOT, CODE_ROOT)
 
@@ -119,9 +148,9 @@ _prompt_cache: dict = {"static": None}
 def build_system_prompt() -> str:
     """Build system prompt from SAKU's identity files.
 
-    固定部分（identity/genome/capabilities/指示）はキャッシュし、可変部分
-    （現在時刻・現在の状態）だけ毎回組み立てる。冒頭を固定することで
-    llama.cpp の cache reuse / API の prefix caching を効かせやすくする。
+    The static parts (identity/genome/capabilities/instructions) are cached, and only the
+    volatile parts (current time, current state) are rebuilt each time. Keeping the prefix
+    fixed makes llama.cpp cache reuse / API prefix caching more effective.
     """
     static = _prompt_cache["static"]
     if static is None:
@@ -132,13 +161,14 @@ def build_system_prompt() -> str:
 
 
 def reload_system_prompt_cache() -> None:
-    """静的プロンプトのキャッシュを破棄する（/reload 等で呼ぶ）。"""
+    """Discard the cached static prompt (called from /reload etc.)."""
     _prompt_cache["static"] = None
 
 
 def _build_volatile_sections() -> str:
-    """可変部分: 現在の状態（meta.md）と現在時刻。"""
+    """Volatile parts: current state (meta.md) and current time."""
     meta = load_file(MEMORY_ROOT / "meta.md")
+    meta = compress(meta, MAX_META_CHARS)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     sections = []
     if meta:
@@ -148,13 +178,17 @@ def _build_volatile_sections() -> str:
 
 
 def _build_static_sections() -> str:
-    """固定部分: identity / genome / principles / skills / capabilities / 指示。"""
+    """Static parts: identity / genome / principles / skills / capabilities / instructions.
+
+    principles / skills are limited from the most recent up to the char limit (so the
+    context is not crowded even as memory grows. Details are retrieved via SEARCH_NOTES).
+    """
     # genome lives in identity/ next to config.toml
     genome_path = CODE_ROOT.parent / "identity" / "genome.md"
     soul = load_file(MEMORY_ROOT / "identity/soul.md")
     genome = compress(load_file(genome_path), MAX_GENOME_CHARS)
-    principles = load_dir(MEMORY_ROOT / "principles")
-    skills = load_dir(MEMORY_ROOT / "skills")
+    principles = load_recent_dir(MEMORY_ROOT / "principles", MAX_PRINCIPLES_CHARS)
+    skills = load_recent_dir(MEMORY_ROOT / "skills", MAX_SKILLS_CHARS)
 
     sections = [
         ("# SAKU Core", soul),
@@ -401,7 +435,7 @@ def chat_stream(messages: list[dict]) -> str:
     Returns the FULL response (including <think> blocks).
     Screen output hides <think>...</think> content.
 
-    ※ 実装は saku/llm.py の per-call 版へ委譲（設定は _current_llm）。
+    Implementation is delegated to the per-call version in saku/llm.py (settings from _current_llm).
     """
     return _llm_chat_stream(messages, _current_llm)
 

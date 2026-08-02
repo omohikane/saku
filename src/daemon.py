@@ -55,6 +55,7 @@ TICK_POLL_SECONDS = _dcfg.get("tick_interval_seconds", 1800)
 ARCHIVE_AFTER_INACTIVE_SECONDS = _dcfg.get("archive_after_inactive_seconds", 1800)
 ARCHIVE_AFTER_TURNS = _dcfg.get("archive_after_turns", 10)
 AUTO_INITIATE_COOLDOWN_SECONDS = _dcfg.get("auto_initiate_cooldown_seconds", 28800)
+INITIATE_RETRY_SECONDS = _dcfg.get("initiate_retry_seconds", 1800)  # Retry interval after failures (prevents spam)
 
 # ── Logging Setup ─────────────────────────────────────
 def _setup_logging():
@@ -325,7 +326,12 @@ def check_autonomous_initiation() -> None:
 
     state = load_chat_state()
     now = time.time()
-    
+
+    # Do not re-fire if not enough time has passed since the last attempt (prevents spam on LLM failure)
+    last_attempt = state.get("last_initiate_attempt", 0)
+    if now - last_attempt < INITIATE_RETRY_SECONDS:
+        return
+
     # Check cooldown
     last_saku = state.get("last_saku_msg_time", 0)
     last_owner = state.get("last_owner_msg_time", 0)
@@ -342,6 +348,10 @@ def check_autonomous_initiation() -> None:
     if not chat_history and state.get("turn_count", 0) == 0:
         # Avoid initiating immediately on a completely empty chat
         return
+
+    # Record the attempt time before running (retry after an interval even on failure)
+    state["last_initiate_attempt"] = now
+    save_chat_state(state)
 
     print("[*] SAKU is autonomously initiating a conversation thread...")
     saku_self_initiate("定例チェックイン")
@@ -377,7 +387,7 @@ def saku_self_initiate(reason: str) -> None:
         
     print(f"[*] SAKU initiated chat.md message: {reason}")
 
-    # Web UI へも届ける（[channels] proactive に webui が含まれる場合）
+    # Also deliver to the Web UI (when "webui" is included in [channels] proactive)
     if "webui" in PROACTIVE_CHANNELS:
         notify_webui(saku_msg)
     
@@ -389,7 +399,7 @@ def saku_self_initiate(reason: str) -> None:
 
 
 def notify_webui(message: str) -> None:
-    """Web UI へ自発メッセージ/アラートを届ける（プロアクティブ通知）。"""
+    """Deliver autonomous messages/alerts to the Web UI (proactive notification)."""
     UI_INBOX.parent.mkdir(parents=True, exist_ok=True)
     UI_INBOX.write_text(
         json.dumps({"message": message}, ensure_ascii=False),
