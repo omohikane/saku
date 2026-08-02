@@ -33,8 +33,14 @@ def main(argv: list[str] | None = None) -> int:
         daemon.main()
         return 0
 
-    if cmd in ("ui", "mcp", "mcp-server", "serve"):
-        print(f"[saku] '{cmd}' は Phase B/C で実装予定です。")
+    if cmd in ("ui", "serve"):
+        from saku.ui import main as ui_main
+
+        ui_main()
+        return 0
+
+    if cmd in ("mcp", "mcp-server"):
+        print("[saku] 'mcp' は Phase C で実装予定です。")
         return 0
 
     print("Usage: saku [chat|daemon|ui|mcp]")
