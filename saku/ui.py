@@ -112,7 +112,8 @@ function addMsg(role, text) {
 function addTool(text) {
   const el = document.createElement("div");
   el.className = "tool";
-  el.textContent = "[tool] " + text;
+  const t = text.length > 300 ? text.slice(0, 300) + "\n... (省略)" : text;
+  el.textContent = "[tool] " + t;
   msgBox.append(el);
   msgBox.scrollTop = msgBox.scrollHeight;
 }

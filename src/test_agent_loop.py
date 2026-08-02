@@ -6,6 +6,7 @@ context.py / thinking.py / transport.py / agent_loop.py
 Runs without an LLM by mocking chat_stream.
 """
 
+import json
 import sys
 import tempfile
 from pathlib import Path
@@ -178,6 +179,57 @@ def test_run_agent_loop_error_breaks():
 
     assert result.last_raw.startswith("[ERROR]")
     assert result.visible == ""
+
+
+def test_strip_tool_blocks():
+    from saku.thinking import strip_tool_blocks
+
+    assert strip_tool_blocks('[[READ_FILE path="x.md"]]\n[[END]]\nこんにちは') == "こんにちは"
+    assert strip_tool_blocks('[[WRITE_FILE path="a.md"]]\nbody\n[[END]]\n記録') == "記録"
+    assert strip_tool_blocks("[[LIST_DIR]]\n[[END]]") == ""
+    assert strip_tool_blocks("plain text") == "plain text"
+
+
+class _FakeResp:
+    def __init__(self, chunks):
+        self._chunks = chunks
+
+    def raise_for_status(self):
+        pass
+
+    def iter_lines(self):
+        for c in self._chunks:
+            yield f"data: {json.dumps({'choices': [{'delta': {'content': c}}]})}".encode("utf-8")
+
+
+def test_chat_stream_suppresses_tool_syntax():
+    import saku.llm as llm
+
+    chunks = [
+        "こんにちは",
+        '[[READ_FILE path="x.md"]]',
+        "\n",
+        "[[END]]",
+        "\n",
+        "記録を確認しました",
+    ]
+    original = llm.requests.post
+    llm.requests.post = lambda *a, **k: _FakeResp(chunks)
+    received = []
+    try:
+        llm.chat_stream(
+            [{"role": "user", "content": "hi"}],
+            LlmConfig(api_url="http://x"),
+            on_token=received.append,
+        )
+    finally:
+        llm.requests.post = original
+
+    shown = "".join(received)
+    assert "[[READ_FILE" not in shown
+    assert "[[END]]" not in shown
+    assert "こんにちは" in shown
+    assert "記録を確認しました" in shown
 
 
 def run_tests():

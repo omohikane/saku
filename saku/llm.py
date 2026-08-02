@@ -10,6 +10,7 @@ from typing import Callable, Optional
 import requests
 
 from .config import LlmConfig
+from .thinking import strip_tool_blocks
 
 # Stop tokens: prevent the model from mimicking the Owner's speech
 STOP_TOKENS = ["Owner:", "Owner>", "\nOwner:", "\nOwner>", "\n**Owner**", "**Owner**"]
@@ -63,6 +64,28 @@ def chat_stream(
     full = ""
     in_thinking = False
     tag_buffer = ""
+    visible_raw = ""  # visible (non-thinking) chars, including tool-call syntax
+    emitted = 0  # how many chars of the cleaned visible text have been emitted
+
+    def _flush() -> None:
+        """Emit the cleaned (tool-syntax-free) visible text up to the last settled point.
+
+        The tail after an unclosed ``[[`` is held back so partial tool-call syntax
+        never reaches the display.
+        """
+        nonlocal emitted
+        last_open = visible_raw.rfind("[[")
+        if last_open == -1:
+            clean = visible_raw
+        else:
+            tail = visible_raw[last_open:]
+            if "[[END]]" in tail:
+                clean = strip_tool_blocks(visible_raw)
+            else:
+                clean = strip_tool_blocks(visible_raw[:last_open])
+        if len(clean) > emitted:
+            emit(clean[emitted:])
+            emitted = len(clean)
 
     for line in resp.iter_lines():
         if not line:
@@ -84,34 +107,33 @@ def chat_stream(
         full += delta
 
         for ch in delta:
-            tag_buffer += ch
-
-            if not in_thinking:
-                if "<think>" in tag_buffer:
-                    before = tag_buffer.split("<think>")[0]
-                    if before:
-                        emit(before)
-                    tag_buffer = ""
-                    in_thinking = True
-                elif "<" in tag_buffer:
-                    if len(tag_buffer) >= 7:
-                        emit(tag_buffer)
-                        tag_buffer = ""
-                else:
-                    emit(tag_buffer)
-                    tag_buffer = ""
-            else:
+            if in_thinking:
+                tag_buffer += ch
                 if "</think>" in tag_buffer:
                     after = tag_buffer.split("</think>")[-1]
                     tag_buffer = after
                     in_thinking = False
                     if tag_buffer and "<" not in tag_buffer:
-                        emit(tag_buffer)
+                        visible_raw += tag_buffer
                         tag_buffer = ""
+            else:
+                tag_buffer += ch
+                if "<think>" in tag_buffer:
+                    before = tag_buffer.split("<think>")[0]
+                    visible_raw += before
+                    tag_buffer = ""
+                    in_thinking = True
+                elif "<" in tag_buffer:
+                    if len(tag_buffer) >= 7:
+                        visible_raw += tag_buffer
+                        tag_buffer = ""
+                else:
+                    visible_raw += tag_buffer
+                    tag_buffer = ""
 
-    if tag_buffer and not in_thinking:
-        emit(tag_buffer)
+        _flush()
 
+    _flush()
     emit("\n")
     return full
 

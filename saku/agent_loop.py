@@ -19,7 +19,7 @@ from typing import Callable, Optional
 from .config import ContextConfig, DEFAULT_WORKING_BUDGET_TOKENS, LlmConfig
 from .context import needs_compaction, trim_old_tool_results, truncate_history
 from .llm import chat_stream
-from .thinking import split_thinking
+from .thinking import split_thinking, strip_tool_blocks
 from .transport import exec_tools
 
 
@@ -86,12 +86,15 @@ def run_agent_loop(
             action_taken = True
 
         thinking, visible = split_thinking(raw_reply)
-        if visible:
-            current_visible.append(visible)
+        clean_visible = strip_tool_blocks(visible)
+        if clean_visible:
+            current_visible.append(clean_visible)
         if thinking:
             current_thinking.append(thinking)
 
-        work.append({"role": "assistant", "content": visible})
+        # Store the cleaned text in history so tool-call syntax is not echoed back
+        # (which would make the model repeat the same tool calls).
+        work.append({"role": "assistant", "content": clean_visible or visible})
 
         # 5. Execute tools
         tool_results = exec_tools(raw_reply, memory_root, code_root)
