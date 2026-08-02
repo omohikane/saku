@@ -9,6 +9,8 @@ No LLM required: /api/chat returns an SSE error event when llama-server is down.
 import json
 import sys
 import threading
+import time
+import types
 import urllib.request
 from pathlib import Path
 
@@ -79,13 +81,20 @@ def test_not_found():
 def test_chat_sse_error():
     server = _start_server()
     try:
-        req = urllib.request.Request(
-            f"http://127.0.0.1:{server._test_port}/api/chat",
-            data=json.dumps({"message": "hi"}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=30) as r:
-            body = r.read().decode("utf-8")
+        import saku.agent_loop as al
+
+        original = al.chat_stream
+        al.chat_stream = lambda history, llm_cfg, on_token=None: "[ERROR] llama-server not reachable"
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{server._test_port}/api/chat",
+                data=json.dumps({"message": "hi"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                body = r.read().decode("utf-8")
+        finally:
+            al.chat_stream = original
         assert '"type": "error"' in body
         assert '"type": "done"' in body
     finally:
@@ -98,6 +107,20 @@ def test_proactive():
         assert json.loads(_get(server, "/api/proactive")) == {}
     finally:
         _stop(server)
+
+
+def test_daemon_thread_spawns():
+    """auto_daemon 時に daemon.main() がスレッドで起動されることを確認（LLMなし）。"""
+    fake = types.ModuleType("daemon")
+    calls = []
+    fake.main = lambda: calls.append("main")
+    sys.modules["daemon"] = fake
+    try:
+        ui._start_daemon_thread()
+        time.sleep(0.3)
+        assert "main" in calls
+    finally:
+        sys.modules.pop("daemon", None)
 
 
 def run_tests():

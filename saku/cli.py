@@ -34,9 +34,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if cmd in ("ui", "serve"):
-        from saku.ui import main as ui_main
+        from saku import config as saku_config
+        from saku.ui import serve
 
-        ui_main()
+        _cfg_ui, _ = saku_config.load_config()
+        host = _cfg_ui.get("ui", {}).get("host", "127.0.0.1")
+        port = int(_cfg_ui.get("ui", {}).get("port", 8787))
+        auto_daemon = not ("--no-daemon" in args)
+        serve(host, port, auto_daemon=auto_daemon)
         return 0
 
     if cmd in ("mcp", "mcp-server"):

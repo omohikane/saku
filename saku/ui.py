@@ -277,11 +277,32 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
 
-def serve(host: str = "127.0.0.1", port: int = 8787) -> None:
-    """Web UI サーバを起動する（ブロッキング）。"""
+def _start_daemon_thread() -> None:
+    """UI と同じプロセス内で daemon の自動ループ（自動思考・振り返り・問いかけ）を起動する。"""
+
+    def _run() -> None:
+        try:
+            import daemon as daemon_mod  # src/ 配下
+
+            daemon_mod.main()
+        except Exception as e:
+            print(f"[!] daemon thread error: {e}", flush=True)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def serve(host: str = "127.0.0.1", port: int = 8787, auto_daemon: bool = True) -> None:
+    """Web UI サーバを起動する（ブロッキング）。
+
+    auto_daemon=True のとき、自動ループ（daemon）も同じプロセス内のスレッドで起動する。
+    """
     server = ThreadingHTTPServer((host, port), Handler)
+    if auto_daemon:
+        _start_daemon_thread()
     print(f"╭─ SAKU Web UI ─────────────────────────────")
     print(f"│  http://{host}:{port}")
+    if auto_daemon:
+        print(f"│  自動ループ（daemon）: 起動中")
     print(f"│  Ctrl+C で停止")
     print(f"╰────────────────────────────────────────────")
     try:
@@ -294,7 +315,8 @@ def serve(host: str = "127.0.0.1", port: int = 8787) -> None:
 def main() -> None:
     host = _cfg.get("ui", {}).get("host", "127.0.0.1")
     port = int(_cfg.get("ui", {}).get("port", 8787))
-    serve(host, port)
+    auto_daemon = _cfg.get("ui", {}).get("auto_daemon", True)
+    serve(host, port, auto_daemon=auto_daemon)
 
 
 if __name__ == "__main__":
