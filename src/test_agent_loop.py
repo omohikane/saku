@@ -41,11 +41,11 @@ def test_trim_old_tool_results():
     ]
     ctx = ContextConfig(max_tool_result_chars=1000)
     out = context.trim_old_tool_results(history, ctx)
-    # 直近2件は全文保持、それより古い1件は縮小される
+    # The two most recent entries keep full content; the older one is truncated
     assert len(out[2]["content"]) < 2000
     assert len(out[3]["content"]) > 4900
     assert len(out[4]["content"]) > 4900
-    # 非ツールメッセージは不変
+    # Non-tool messages are unchanged
     assert out[0]["content"] == "sys"
 
 

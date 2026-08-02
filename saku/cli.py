@@ -1,12 +1,12 @@
-"""SAKU CLI エントリポイント。
+"""SAKU CLI entry point.
 
-    saku chat     対話モード（従来の saku_core.py）
-    saku daemon   バックグラウンドデーモン（従来の daemon.py）
-    saku ui       Web UI（Phase B 予定）
-    saku mcp      MCP サーバ（Phase C 予定）
+    saku chat     interactive mode (formerly saku_core.py)
+    saku daemon   background daemon (formerly daemon.py)
+    saku ui       Web UI (planned for Phase B)
+    saku mcp      MCP server (planned for Phase C)
 
-従来の src/ 配下モジュール（saku_core.py / daemon.py / reflect.py）へ委譲する。
-将来、Phase B/C でそれらのコードをこのパッケージへ移設する。
+Delegates to the modules under the former src/ (saku_core.py / daemon.py / reflect.py).
+In the future, Phase B/C will migrate that code into this package.
 """
 
 import sys

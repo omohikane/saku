@@ -1,10 +1,10 @@
-"""応答テキストから思考（<think>）と可視部分を分離する。"""
+"""Separate thinking (<think>) and visible parts from the response text."""
 
 import re
 
 
 def split_thinking(text: str) -> tuple[str, str]:
-    """応答を (thinking, visible) に分離する。"""
+    """Separate the response into (thinking, visible)."""
     think_blocks = re.findall(r"<think>(.*?)</think>", text, flags=re.DOTALL)
     thinking = "\n\n".join(block.strip() for block in think_blocks if block.strip())
 

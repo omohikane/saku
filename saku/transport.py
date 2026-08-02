@@ -1,7 +1,7 @@
-"""ツール呼び出しの解析・実行（[[TOOL]] ブロックのディスパッチ）。
+"""Parsing and execution of tool calls (dispatch of [[TOOL]] blocks).
 
-メモリルートとコードルートを引数で受け取る（グローバル非依存）。
-Phase C では MCP クライアント/サーバとの変換層に拡張する。
+Takes the memory root and code root as arguments (no global dependencies).
+In Phase C this will be extended as a conversion layer with MCP client/server.
 """
 
 import importlib.util
@@ -13,13 +13,13 @@ from pathlib import Path
 
 def _tool_candidates(name_lower: str, memory_root: Path, code_root: Path) -> list[Path]:
     return [
-        memory_root / "tools" / f"{name_lower}.py",  # SAKU の自作ツール
-        code_root / "system_tools" / f"{name_lower}.py",  # システムツール
+        memory_root / "tools" / f"{name_lower}.py",  # SAKU's own tools
+        code_root / "system_tools" / f"{name_lower}.py",  # system tools
     ]
 
 
 def _load_tool(name_lower: str, tool_file: Path):
-    """ツールモジュールを動的ロードして run 関数を返す。"""
+    """Dynamically load the tool module and return its run function."""
     module_name = f"_saku_tool_{name_lower}"
     if module_name in sys.modules:
         del sys.modules[module_name]
@@ -33,10 +33,10 @@ def _load_tool(name_lower: str, tool_file: Path):
 
 
 def exec_tools(raw: str, memory_root: Path, code_root: Path) -> list[str]:
-    """[[TOOL ...]] ブロックを解析して実行する。
+    """Parse and execute [[TOOL ...]] blocks.
 
-    有効なツールの開始タグが正しく [[END]] で閉じられているかも検証する。
-    ツール探索順: memory/tools/ → system_tools/
+    Also validates that valid tool start tags are properly closed with [[END]].
+    Tool search order: memory/tools/ → system_tools/
     """
     results: list[str] = []
 
@@ -69,7 +69,7 @@ def exec_tools(raw: str, memory_root: Path, code_root: Path) -> list[str]:
 
         results.append(f"[{name}] {result}")
 
-    # 閉じられていない/不正なツール呼び出しの検証
+    # Validate unclosed/invalid tool calls
     for start_match in starts:
         name = start_match.group(1)
         name_lower = name.lower()

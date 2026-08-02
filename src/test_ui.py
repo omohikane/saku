@@ -110,7 +110,7 @@ def test_proactive():
 
 
 def test_daemon_thread_spawns():
-    """auto_daemon 時に daemon.main() がスレッドで起動されることを確認（LLMなし）。"""
+    """Verify that daemon.main() is started in a thread with auto_daemon enabled (no LLM)."""
     fake = types.ModuleType("daemon")
     calls = []
     fake.main = lambda: calls.append("main")

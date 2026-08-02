@@ -1,17 +1,17 @@
-"""Web UI サーバ（標準ライブラリのみ・依存ゼロ）。
+"""Web UI server (stdlib only, zero dependencies).
 
-``saku ui`` で起動し、localhost で単一HTMLのチャットUIを配信する。
-``POST /api/chat`` はエージェントループを実行し、結果を SSE でストリーミングする。
+Started with ``saku ui``; serves a single-page chat UI on localhost.
+``POST /api/chat`` runs the agent loop and streams the result over SSE.
 
-仕組み:
-- http.server.ThreadingHTTPServer がローカルサーバを起動
-- GET  /                    → 単一HTML（チャットUI）
-- POST /api/chat             → {message} を受け取り run_agent_loop を実行
-- レスポンスは text/event-stream。可視トークン・ツール実行・完了をイベントで送る
-- GET  /api/health           → 稼働確認
-- GET  /api/proactive        → daemon が書いた自発メッセージ（問いかけ/アラート）の取得
+Mechanism:
+- http.server.ThreadingHTTPServer runs a local server
+- GET  /                    → single-page HTML (chat UI)
+- POST /api/chat             → accepts {message} and runs run_agent_loop
+- Response is text/event-stream; visible tokens, tool runs, and completion are sent as events
+- GET  /api/health           → health check
+- GET  /api/proactive        → fetches autonomous messages (proactive messages/alerts) written by the daemon
 
-セッション履歴はメモリ内で保持する（localhost 単一ユーザー前提・v1）。
+Session history is kept in memory (localhost single-user assumption, v1).
 """
 
 import json
@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-# リポジトリルート（config.toml / saku/ / memory/ がある場所）
+# Repo root (where config.toml / saku/ / memory/ live)
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
@@ -29,7 +29,7 @@ if str(_REPO_ROOT) not in sys.path:
 from saku import config as saku_config
 from saku.agent_loop import run_agent_loop
 
-# 依存コア（saku_core は src/ にある）
+# Dependent core (saku_core lives in src/)
 _SRC = _REPO_ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
@@ -41,11 +41,11 @@ _LLM = agent._current_llm
 _CTX = agent.context_config
 _UI_INBOX = _MEMORY_ROOT / "state" / "ui_inbox.json"
 
-# セッション履歴（client_id -> messages）。システムプロンプトは index 0。
+# Session history (client_id -> messages). The system prompt is index 0.
 _sessions: dict[str, list[dict]] = {}
 _sessions_lock = threading.Lock()
 
-# ── フロントエンド（単一HTML）────────────────────────────
+# ── Frontend (single HTML) ───────────────────────────────
 PAGE = """<!doctype html>
 <html lang="ja">
 <head>
@@ -187,7 +187,7 @@ def _load_proactive() -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, *args):  # 既定のログを抑制
+    def log_message(self, *args):  # suppress default logging
         pass
 
     def _send_headers(self, status=200, ctype="text/html; charset=utf-8"):
@@ -278,11 +278,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _start_daemon_thread() -> None:
-    """UI と同じプロセス内で daemon の自動ループ（自動思考・振り返り・問いかけ）を起動する。"""
+    """Start the daemon autonomous loop (self-study, reflection, proactive messages) in the same process."""
 
     def _run() -> None:
         try:
-            import daemon as daemon_mod  # src/ 配下
+            import daemon as daemon_mod  # lives in src/
 
             daemon_mod.main()
         except Exception as e:
@@ -292,9 +292,9 @@ def _start_daemon_thread() -> None:
 
 
 def serve(host: str = "127.0.0.1", port: int = 8787, auto_daemon: bool = True) -> None:
-    """Web UI サーバを起動する（ブロッキング）。
+    """Start the Web UI server (blocking).
 
-    auto_daemon=True のとき、自動ループ（daemon）も同じプロセス内のスレッドで起動する。
+    When auto_daemon=True, the autonomous loop (daemon) also starts as a thread in this process.
     """
     server = ThreadingHTTPServer((host, port), Handler)
     if auto_daemon:

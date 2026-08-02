@@ -1,7 +1,7 @@
-"""LLM クライアント。
+"""LLM client.
 
-``chat_stream`` は ``LlmConfig`` を引数で受け取る（per-call 設定）。
-グローバルな API_URL / API_KEY / MODEL には依存しない。
+``chat_stream`` takes ``LlmConfig`` as an argument (per-call settings).
+It does not depend on global API_URL / API_KEY / MODEL.
 """
 
 import json
@@ -11,7 +11,7 @@ import requests
 
 from .config import LlmConfig
 
-# Stop tokens: model が Owner 側の発言を真似るのを防ぐ
+# Stop tokens: prevent the model from mimicking the Owner's speech
 STOP_TOKENS = ["Owner:", "Owner>", "\nOwner:", "\nOwner>", "\n**Owner**", "**Owner**"]
 
 
@@ -20,11 +20,11 @@ def chat_stream(
     llm_cfg: LlmConfig,
     on_token: Optional[Callable[[str], None]] = None,
 ) -> str:
-    """LLM API にメッセージを送り、ストリームで受け取る。
+    """Send messages to the LLM API and receive them as a stream.
 
-    - 戻り値は完全な応答（<think> ブロック含む）
-    - on_token が無ければ可視トークンを stdout に出力する
-      （従来の対話・デーモン表示と同じ挙動）
+    - The return value is the complete response (including the <think> block)
+    - If on_token is not given, visible tokens are printed to stdout
+      (same behavior as the previous interactive/daemon display)
     """
     payload = {
         "messages": messages,
@@ -117,5 +117,5 @@ def chat_stream(
 
 
 def _default_emit(text: str) -> None:
-    """従来の stdout ストリーム出力。"""
+    """Previous stdout stream output."""
     print(text, end="", flush=True)
