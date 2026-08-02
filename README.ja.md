@@ -65,11 +65,14 @@ cp memory/meta.template.md memory/meta.md
 # identity/genome.md の {{...}} プレースホルダを編集
 # 実装例: identity/examples/saku.md を参照
 
-# 4. インタラクティブモードで起動
-cd src && python saku_core.py
+# 4. Web UIで起動（自動ループ（daemon）も同じプロセスで起動）
+python -m saku.ui
+# → ブラウザで http://127.0.0.1:8787 を開く
 
-# 5. バックグラウンドデーモンとして起動（自律モード）
-cd src && nohup python daemon.py > ../saku.log 2>&1 &
+# 代替:
+python -m saku.cli chat      # ターミナル対話
+python -m saku.cli daemon    # daemonのみ
+python -m saku.ui --no-daemon  # Web UIのみ（自動ループなし）
 ```
 
 詳細なセットアップは [docs/SETUP.md](docs/SETUP.md) を参照してください。
@@ -116,10 +119,20 @@ identity/
   examples/
     saku.md            # 実装例（朔）
 
-src/
-  saku_core.py         # エージェントエンジン（LLM呼び出し・ツール実行・プロンプト構築）
-  daemon.py            # バックグラウンドプロセス（ポーリング・自律ティック・夜間振り返り）
-  reflect.py           # 夜間の日次サマリーと自己モデル更新
+saku/                  # コアパッケージ（Python、uv管理）
+  cli.py               # CLIエントリ: chat / daemon / ui
+  config.py            # 設定読み込み・バリデーション
+  llm.py               # LLMクライアント（per-call設定、マルチインスタンス）
+  agent_loop.py        # 共通エージェントループ（core/daemon/reflect/UI共用）
+  context.py           # コンテキスト予算・ツール結果pruning・コンパクション
+  transport.py         # ツール実行（[[TOOL]] ブロックのディスパッチ）
+  thinking.py          # <think> 分離
+  ui.py                # Web UI（依存ゼロ、SSEストリーミング）
+
+src/                   # レガシーモジュール（saku/ へ移行中）
+  saku_core.py         # エージェントエンジン（旧エントリポイント）
+  daemon.py            # バックグラウンドスケジューラ
+  reflect.py           # 夜間振り返り
   system_tools/        # システムツール（朔は読取専用）
 
 sample/                # Obsidianセットアップ用テンプレート
@@ -143,6 +156,9 @@ config.toml            # ユーザー設定（.gitignore済み）
 config.example.toml    # 設定例（公開）
 ```
 
+> `memory/` は `config.toml` の `[memory] root` で任意のディレクトリ（Obsidian
+> vault を含む）を指せます（絶対パス・相対パス対応）。
+
 > **メモリストアについて**: SAKUはプレーンなMarkdownファイルを記憶として使います。
 > Obsidianはその一例。`memory/` に相当する場所であれば、通常のディレクトリでも
 > クラウド同期フォルダでも動作します。詳細は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
@@ -163,6 +179,21 @@ config.example.toml    # 設定例（公開）
 
 ---
 
+## Web UI
+
+```bash
+python -m saku.ui
+```
+
+ブラウザで **http://127.0.0.1:8787** を開くと会話できます。応答はSSEで
+トークン単位にストリーミング表示され、ツール実行もインライン表示されます。
+自動ループ（daemon）も既定で一緒に起動し、問いかけ（自発メッセージ）もUIに届きます。
+
+- UIのみ（自動ループなし）: `python -m saku.ui --no-daemon`
+- アドレス・ポートは `config.toml` の `[ui]` で変更可能
+
+---
+
 ## Conversation Interface（`chat.md`）
 
 ターミナルではなく、Markdownファイルで会話できます：
@@ -176,6 +207,9 @@ config.example.toml    # 設定例（公開）
 ```
 
 `>` が送信トリガーです。自動保存による誤送信を防ぎます。
+
+`chat.md` はWeb UIと並ぶレガシーチャネルとして維持され、将来 `[channels]`
+設定で無効化できます。
 
 ---
 
@@ -226,11 +260,12 @@ input here
 
 ### Ideas / 今後の方向性
 
+- [x] Web UI（`chat.md` と併存。実装済み）
 - [ ] Memory store の抽象化レイヤー（SQLite、Vector DB）
-- [ ] `chat.md` の代わりになるWeb UI
 - [ ] ツールのコミュニティレジストリ
 - [ ] マルチエージェント対応（複数の genome インスタンス）
 - [ ] 長期記憶の圧縮・要約メカニズム
+- [ ] ポリグロットツール（任意言語）と MCP（クライアント+サーバ）
 
 ---
 

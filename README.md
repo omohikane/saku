@@ -64,11 +64,14 @@ cp memory/meta.template.md memory/meta.md
 # Edit placeholders inside identity/genome.md (e.g., name, values)
 # Check out identity/examples/saku.md for a concrete example
 
-# 4. Start Interactive Terminal Mode
-cd src && python saku_core.py
+# 4. Start the Web UI (starts the autonomous daemon loop in the same process)
+python -m saku.ui
+# → open http://127.0.0.1:8787 in your browser
 
-# 5. Or run SAKU as a background daemon (Autonomous Mode)
-cd src && nohup python daemon.py > ../saku.log 2>&1 &
+# Alternatives:
+python -m saku.cli chat     # terminal chat
+python -m saku.cli daemon   # background daemon only
+python -m saku.ui --no-daemon  # Web UI without the autonomous loop
 ```
 
 For a detailed setup guide, please refer to [docs/SETUP.md](docs/SETUP.md).
@@ -98,9 +101,19 @@ identity/
   examples/
     saku.md            # Reference implementation (anonymized)
 
-src/
-  saku_core.py         # Agent core engine (LLM calls, tool dispatcher, prompt builder)
-  daemon.py            # Background process (polling, autonomous ticks, nightly summaries)
+saku/                  # Core package (Python, uv-managed)
+  cli.py               # CLI entry: chat / daemon / ui
+  config.py            # Config loading + validation
+  llm.py               # LLM client (per-call settings, multi-instance)
+  agent_loop.py        # Shared agent loop (used by core/daemon/reflect/UI)
+  context.py           # Context budget, tool-result pruning, compaction
+  transport.py         # Tool dispatch ([[TOOL]] blocks)
+  thinking.py          # <think> separation
+  ui.py                # Web UI (stdlib only, SSE streaming)
+
+src/                   # Legacy modules (being migrated into saku/)
+  saku_core.py         # Agent core engine (legacy entry point)
+  daemon.py            # Background scheduler (autonomous ticks, reflection)
   reflect.py           # Nightly reflection script (updates meta.md)
   system_tools/        # System-level tool plugins (read-only for SAKU)
 
@@ -125,6 +138,9 @@ config.toml            # User configurations (ignored)
 config.example.toml    # Configuration template (tracked)
 ```
 
+> `memory/` can point to any directory — including an Obsidian vault — via the
+> `[memory] root` setting in `config.toml` (absolute or relative path).
+
 > **Note on Memory Store**: SAKU uses plain Markdown files for storage. Obsidian is used as a reference implementation, but it is not required. Any folder (synced, local, or cloud) can act as the memory root. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
@@ -145,9 +161,26 @@ All intervals are configurable inside the `[daemon]` section of `config.toml`.
 
 ---
 
+## Web UI
+
+Start the Web UI (also starts the autonomous daemon loop by default):
+
+```bash
+python -m saku.ui
+```
+
+Open <http://127.0.0.1:8787> in your browser to chat with SAKU. Responses stream
+token by token over SSE, and tool executions are shown inline. Autonomous
+proactive messages (e.g., check-ins) are also delivered to the UI.
+
+- UI only, no daemon: `python -m saku.ui --no-daemon`
+- Address/port/language can be configured under `[ui]` in `config.toml`.
+
+---
+
 ## Conversation Interface (`chat.md`)
 
-You can talk to SAKU using a simple Markdown file:
+You can also talk to SAKU using a simple Markdown file:
 
 1. Open `memory/chat.md` in any editor or Obsidian.
 2. Write your message, end it with a `>` trigger, and save.
@@ -158,6 +191,9 @@ How is your day going? >
 ```
 
 The `>` acts as a send trigger to prevent accidental replies while you are typing (due to editor auto-save features).
+
+`chat.md` is kept as a legacy channel alongside the Web UI and can be disabled
+later via the `[channels]` setting.
 
 ---
 
@@ -206,11 +242,12 @@ SAKU can create and modify its own tools inside `memory/tools/` using `WRITE_FIL
 
 ### Future Ideas
 
+- [x] Web UI for conversation (implemented alongside `chat.md`)
 - [ ] Memory store abstraction layer (SQLite, Vector DB)
-- [ ] Web UI for conversation instead of `chat.md`
 - [ ] Community tool registry / marketplace
-- [ ] Multi-agent networks
+- [ ] Multi-agent networks (child agents)
 - [ ] Long-term memory compression mechanisms
+- [ ] Polyglot tool plugins (any language) and MCP (client + server)
 
 ---
 
