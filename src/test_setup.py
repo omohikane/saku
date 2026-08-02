@@ -51,8 +51,27 @@ def test_init_memory():
         assert (root / "meta.md").exists()
         assert (root / "chat.md").exists()
         assert (root / "request_list.md").exists()
+        # genome master is created in the vault (from repo template fallback)
+        assert (root / "identity" / "genome.md").exists()
         # idempotent: running twice must not fail or overwrite
         init_memory(root)
+
+
+def test_genome_priority_vault_root():
+    """When the vault root has identity/genome.md, setup copies it (not the repo template)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp)
+        vault_root = base / "_saku"
+        (vault_root / "identity").mkdir(parents=True)
+        real = vault_root / "identity" / "genome.md"
+        real.write_text("# Real master genome", encoding="utf-8")
+
+        memory_root = vault_root / "memory"
+        init_memory(memory_root)
+
+        copied = memory_root / "identity" / "genome.md"
+        assert copied.exists()
+        assert "Real master genome" in copied.read_text(encoding="utf-8")
 
 
 def run_tests():

@@ -72,6 +72,9 @@ def init_memory(memory_root: Path) -> None:
         if soul_template.exists():
             shutil.copy(soul_template, soul)
 
+    # genome.md (user-authored personality master) — the vault is the master location
+    _copy_genome(memory_root)
+
     # chat.md and request_list.md (never overwrite existing content)
     chat = memory_root / "chat.md"
     if not chat.exists():
@@ -80,6 +83,30 @@ def init_memory(memory_root: Path) -> None:
     req = memory_root / "request_list.md"
     if not req.exists():
         req.write_text(REQUEST_HEADER, encoding="utf-8")
+
+
+def _copy_genome(memory_root: Path) -> None:
+    """Ensure memory/identity/genome.md exists as the vault master.
+
+    The repo's identity/genome.md is only a sample; the personal master lives in
+    the vault. Source priority:
+    1. existing memory/identity/genome.md (keep as-is)
+    2. vault root identity/genome.md (e.g. Obsidian layout: _saku/identity/)
+    3. repo identity/genome.md (maintainer's copy if present)
+    4. repo identity/genome.template.md (fresh clone)
+    """
+    target = memory_root / "identity" / "genome.md"
+    if target.exists():
+        return
+    sources = [
+        memory_root.parent / "identity" / "genome.md",
+        _REPO_ROOT / "identity" / "genome.md",
+        _REPO_ROOT / "identity" / "genome.template.md",
+    ]
+    for src in sources:
+        if src.exists():
+            shutil.copy(src, target)
+            return
 
 
 def main(argv: list[str] | None = None) -> int:
