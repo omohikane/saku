@@ -44,6 +44,9 @@ STATE_FILE = MEMORY_ROOT / "state/processed_inbox.json"
 CHAT_STATE_FILE = MEMORY_ROOT / "state/chat_state.json"
 REQUEST_FILE = MEMORY_ROOT / "request_list.md"
 LOG_DIR = MEMORY_ROOT / "state"
+UI_INBOX = MEMORY_ROOT / "state" / "ui_inbox.json"
+
+PROACTIVE_CHANNELS = agent.saku_config.load_channels_config(agent._cfg).proactive
 
 CHAT_POLL_SECONDS = _dcfg.get("chat_poll_seconds", 5)
 INBOX_POLL_SECONDS = _dcfg.get("inbox_poll_seconds", 3600)
@@ -373,12 +376,25 @@ def saku_self_initiate(reason: str) -> None:
         f.write(reply_block)
         
     print(f"[*] SAKU initiated chat.md message: {reason}")
+
+    # Web UI へも届ける（[channels] proactive に webui が含まれる場合）
+    if "webui" in PROACTIVE_CHANNELS:
+        notify_webui(saku_msg)
     
     # Save the updated content state so daemon doesn't loop
     state["last_mtime"] = CHAT_FILE.stat().st_mtime
     state["last_content"] = CHAT_FILE.read_text(encoding="utf-8")
     state["last_saku_msg_time"] = time.time()
     save_chat_state(state)
+
+
+def notify_webui(message: str) -> None:
+    """Web UI へ自発メッセージ/アラートを届ける（プロアクティブ通知）。"""
+    UI_INBOX.parent.mkdir(parents=True, exist_ok=True)
+    UI_INBOX.write_text(
+        json.dumps({"message": message}, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 # ── Midnight Reflection (2:00 AM) ──────────────────────────
 def check_and_run_midnight_reflection() -> None:
