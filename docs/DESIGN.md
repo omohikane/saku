@@ -144,3 +144,21 @@ memory/
 - OpenClaw: compaction/pruning/context engine・Dreaming昇格・MCP双方向・チャネルGateway
 - Google Titans / Memory Bank: surprise metric（重要度判定）・TTL減衰・consolidation
 - A-MEM: Zettelkastenをエージェント記憶へ応用（wiki/ の基礎）
+
+---
+
+## 実装状況（dev ブランチ）
+
+| Phase | 内容 | 状態 |
+|---|---|---|
+| A | `saku/` パッケージ化・`config.py`・`llm.py` per-call化 | ✅ 完了 |
+| B-1 | `agent_loop.py` 共通化・`context.py`（予算/pruning/コンパクション）・`transport.py`・`thinking.py` | ✅ 完了 |
+| B-2 | プロンプト固定prefix/可変suffix分離（静的キャッシュ） | ✅ 完了 |
+| B-3 | Web UI（stdlib・SSEストリーミング・`saku ui`）＋daemonのproactive→UI配信 | ✅ 完了 |
+| B-4 | チャネル抽象化（`saku/channels/`・chatmdリファクタ） | 未着手 |
+| C | ポリグロットツール・MCP双方向 | 未着手 |
+| D | 子エージェント・MEMORY.md/wiki・dreaming | 未着手 |
+| E | ホームNOC/SOC | 未着手 |
+
+Web UIは依存ゼロ（http.server + SSE）。詳細な経緯はコミットログを参照。
+
