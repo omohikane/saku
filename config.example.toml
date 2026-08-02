@@ -99,6 +99,7 @@ auto_initiate_cooldown_seconds = 28800 # SAKU self-initiates every 8 hours
 # [ui]
 # host = "127.0.0.1"
 # port = 8787
+# auto_daemon = true   # UI 起動時に自動ループ（daemon）も一緒に起動する
 
 # [ops] - ホーム運用の承認境界（Phase E で実装。定義のみ）
 # 自動実行OKの操作（読み取り系）と、承認必須の操作（破壊的）を分離する
