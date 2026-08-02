@@ -19,8 +19,6 @@ Changelog:
     v0.3 - Thinking filter, journal fixes, capability constraints
 """
 
-import importlib
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -34,9 +32,14 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from saku import config as saku_config
+from saku.agent_loop import run_agent_loop as _run_agent_loop
 from saku.llm import STOP_TOKENS, chat_stream as _llm_chat_stream
+from saku.thinking import split_thinking as _split_thinking
+from saku.transport import exec_tools as _exec_tools
 
 _cfg, _config_base = saku_config.load_config()
+
+context_config = saku_config.load_context_config(_cfg)
 
 # Resolve memory root path (can be relative to config base or absolute)
 MEMORY_ROOT = saku_config.resolve_memory_root(_cfg, _config_base)
@@ -97,101 +100,16 @@ def compress(text: str, limit: int) -> str:
 # ── Thinking Extraction ─────────────────────────────────
 def split_thinking(text: str) -> tuple[str, str]:
     """Split response into (thinking, visible) parts."""
-    think_blocks = re.findall(r"<think>(.*?)</think>", text, flags=re.DOTALL)
-    thinking = "\n\n".join(block.strip() for block in think_blocks if block.strip())
-
-    visible = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-    visible = re.sub(r"\[thinking\.{0,3}\]\s*", "", visible)
-    visible = visible.strip()
-
-    return thinking, visible
+    return _split_thinking(text)
 
 
 # ── Tool Execution ──────────────────────────────────────
 def exec_tools(raw: str) -> list[str]:
     """Parse and execute [[TOOL ...]] blocks in SAKU's output dynamically.
-    Also validates that all start tags of valid tools are properly closed.
 
-    Tool lookup order:
-      1. MEMORY_ROOT / "tools" / name.py   (SAKU's own tools)
-      2. CODE_ROOT / "system_tools" / name.py  (system tools)
+    ※ 実装は saku/transport.py へ委譲（メモリルート・コードルートを解決して渡す）。
     """
-    import sys
-    import traceback
-    import importlib.util
-    results: list[str] = []
-
-    # Find all start tags of valid tools to check for syntax errors
-    start_pattern = r"\[\[([A-Z_]+)\s*(.*?)\]\]"
-    starts = list(re.finditer(start_pattern, raw))
-    parsed_ranges = []
-
-    pattern = r"\[\[(\w+)\s*(.*?)\]\]\s*\n(.*?)\n?\[\[END\]\]"
-    for m in re.finditer(pattern, raw, re.DOTALL):
-        name, args_str, body = m.group(1), m.group(2), m.group(3)
-        start_idx, end_idx = m.start(), m.end()
-        parsed_ranges.append((start_idx, end_idx))
-
-        name_lower = name.lower()
-
-        # 1. Check SAKU's own tools (memory/tools/) first
-        tool_file = MEMORY_ROOT / "tools" / f"{name_lower}.py"
-        # 2. Fall back to system tools (src/system_tools/)
-        if not tool_file.exists():
-            tool_file = CODE_ROOT / "system_tools" / f"{name_lower}.py"
-
-        if not tool_file.exists():
-            results.append(f"[ERROR] unknown tool: {name}")
-            continue
-
-        args = dict(re.findall(r'(\w+)="(.*?)"', args_str))
-        path = args.get("path", "")
-
-        try:
-            module_name = f"_saku_tool_{name_lower}"
-            if module_name in sys.modules:
-                del sys.modules[module_name]
-            spec = importlib.util.spec_from_file_location(module_name, tool_file)
-            if spec is None:
-                results.append(f"[ERROR] failed to load tool: {name}")
-                continue
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            spec.loader.exec_module(module)
-            extra_kwargs = {k: v for k, v in args.items() if k != "path"}
-            result = module.run(SAKU_ROOT, path, body.strip(), **extra_kwargs)
-        except Exception as e:
-            result = f"[ERROR] {e}\n{traceback.format_exc()}"
-
-        results.append(f"[{name}] {result}")
-
-    # Check for unclosed/malformed tool calls
-    for start_match in starts:
-        name = start_match.group(1)
-        name_lower = name.lower()
-        # Check both tool locations
-        tool_candidates = [
-            MEMORY_ROOT / "tools" / f"{name_lower}.py",
-            CODE_ROOT / "system_tools" / f"{name_lower}.py",
-        ]
-        if not any(p.exists() for p in tool_candidates):
-            continue
-
-        start_pos = start_match.start()
-        inside_parsed = False
-        for p_start, p_end in parsed_ranges:
-            if p_start <= start_pos < p_end:
-                inside_parsed = True
-                break
-
-        if not inside_parsed:
-            has_end = "[[END]]" in raw[start_pos:]
-            if not has_end:
-                results.append(f"[ERROR] Tool [[{name}]] was not closed with [[END]]. Every tool call block must end with [[END]] on its own line.")
-            else:
-                results.append(f"[ERROR] Tool [[{name}]] has invalid syntax. Ensure a newline after the start tag and before [[END]]. Example:\n[[{name} path=\"...\"]]\ncontent\n[[END]]")
-
-    return results
+    return _exec_tools(raw, MEMORY_ROOT, CODE_ROOT)
 
 
 # ── Prompt Construction ─────────────────────────────────
@@ -548,51 +466,20 @@ def main():
         # ── Chat Loop ──
         history.append({"role": "user", "content": user_input})
 
-        max_turns = 5
-        turn = 0
-        current_visible = []
-        current_thinking = []
-        last_raw = ""
-
-        while turn < max_turns:
-            print("SAKU> ", end="", flush=True)
-            raw_reply = chat_stream(history)
-            last_raw = raw_reply
-
-            if raw_reply.startswith("[ERROR]"):
-                break
-
-            thinking, visible = split_thinking(raw_reply)
-            if visible:
-                current_visible.append(visible)
-            if thinking:
-                current_thinking.append(thinking)
-
-            # Store only visible in history
-            history.append({"role": "assistant", "content": visible})
-
-            # ── Tool execution ──
-            tool_results = exec_tools(raw_reply)
-            if not tool_results:
-                break
-
-            tool_output = "\n".join(tool_results)
-            print(f"\n[tool] {tool_output}")
-
-            # Feed results back
-            history.append(
-                {
-                    "role": "user",
-                    "content": f"[system] tool results:\n{tool_output}",
-                }
-            )
-            turn += 1
+        print("SAKU> ", end="", flush=True)
+        result = _run_agent_loop(
+            history,
+            _current_llm,
+            context_config,
+            MEMORY_ROOT,
+            CODE_ROOT,
+            max_turns=5,
+        )
+        history = result.history
 
         # ── Journal (once per turn) ──
-        if last_raw and not last_raw.startswith("[ERROR]"):
-            merged_visible = "\n\n".join(current_visible).strip()
-            merged_thinking = "\n\n".join(current_thinking).strip()
-            save_journal(user_input, merged_visible, thinking=merged_thinking)
+        if result.last_raw and not result.last_raw.startswith("[ERROR]"):
+            save_journal(user_input, result.visible, thinking=result.thinking)
 
 
 if __name__ == "__main__":

@@ -25,6 +25,13 @@ from pathlib import Path
 CODE_ROOT = Path(__file__).parent
 sys.path.append(str(CODE_ROOT))
 
+# Ensure repo root (parent of src/) is on path so the `saku` package is importable.
+_REPO_ROOT = CODE_ROOT.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from saku.agent_loop import run_agent_loop as _run_agent_loop
+
 import saku_core as agent
 import reflect
 
@@ -202,77 +209,27 @@ def run_agent_loop(prompt: str, log_action_name: str, extra_history: list[dict] 
 
     logger.info("[%s] agent loop started", log_action_name)
 
-    max_turns = 5
-    turn = 0
-    current_visible = []
-    current_thinking = []
-    last_raw = ""
-    action_taken = False
+    def on_tool_result(tool_output: str) -> None:
+        logger.debug("[TOOL] [%s] %s", log_action_name, tool_output[:500])
+        print(f"\n[tool] {tool_output}")
 
-    while turn < max_turns:
-        # --- Context Protection / Pruning ---
-        # Safe character limit (~12000 chars is roughly 4000-6000 tokens, well below 8192 context limit)
-        char_limit = 12000
-        total_chars = sum(len(m.get("content", "")) for m in history)
-        
-        if total_chars > char_limit and len(history) > 5:
-            print(f"[*] Context size is large ({total_chars} chars). Pruning old history...")
-            logger.warning("[%s] context pruned: %d chars -> keeping system + last 4 msgs", log_action_name, total_chars)
-            # Keep system prompt (index 0) and the last 4 messages (which contain current tools and logic)
-            # and discard the middle (older chat logs)
-            pruned_history = [history[0]] + history[-4:]
-            history = pruned_history
-            new_total = sum(len(m.get("content", "")) for m in history)
-            print(f"[*] Pruned context size down to {new_total} chars.")
+    result = _run_agent_loop(
+        history,
+        agent._current_llm,
+        agent.context_config,
+        agent.MEMORY_ROOT,
+        agent.CODE_ROOT,
+        max_turns=5,
+        on_tool_result=on_tool_result,
+        no_action_markers=["[NO_ACTION]", "[INBOX_PROCESSED]"],
+        log=lambda msg: logger.warning("[%s] %s", log_action_name, msg),
+    )
 
-        raw_reply = agent.chat_stream(history)
-        last_raw = raw_reply
+    if result.action_taken and result.last_raw and not result.last_raw.startswith("[ERROR]"):
+        agent.save_autonomous_log(log_action_name, result.visible, thinking=result.thinking)
+        return True, result.visible
 
-        if raw_reply.startswith("[ERROR]"):
-            print(f"[!] LLM Error: {raw_reply}")
-            logger.error("[%s] LLM error: %s", log_action_name, raw_reply[:300])
-            break
-
-        thinking, visible = agent.split_thinking(raw_reply)
-
-        if "[NO_ACTION]" not in raw_reply and "[INBOX_PROCESSED]" not in raw_reply:
-            action_taken = True
-
-        if visible:
-            current_visible.append(visible)
-        if thinking:
-            current_thinking.append(thinking)
-
-        history.append({"role": "assistant", "content": visible})
-
-        tool_results = agent.exec_tools(raw_reply)
-        if tool_results:
-            action_taken = True
-            
-            # Truncate overly long tool outputs to prevent context pollution
-            processed_results = []
-            for tr in tool_results:
-                tr_trimmed = tr[:500] + " [...truncated]" if len(tr) > 500 else tr
-                logger.debug("[TOOL] [%s] %s", log_action_name, tr_trimmed)
-                if len(tr) > 2000:
-                    tr = tr[:2000] + "\n\n[... tool output truncated to save context ...]"
-                processed_results.append(tr)
-                
-            tool_output = "\n".join(processed_results)
-            print(f"\n[tool] {tool_output}")
-            history.append({"role": "user", "content": f"[system] tool results:\n{tool_output}"})
-        else:
-            break
-        turn += 1
-
-    merged_visible = "\n\n".join(current_visible).strip()
-    merged_thinking = "\n\n".join(current_thinking).strip()
-
-    if action_taken and last_raw and not last_raw.startswith("[ERROR]"):
-        agent.save_autonomous_log(log_action_name, merged_visible, thinking=merged_thinking)
-        return True, merged_visible
-
-    return False, merged_visible
+    return False, result.visible
 
 # ── Chat: reply ──────────────────────────────────────────
 def check_chat_and_reply() -> None:
