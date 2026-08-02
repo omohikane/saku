@@ -265,6 +265,7 @@ SAKU can create and modify its own tools inside `memory/tools/` using `WRITE_FIL
 _Note: Detailed documentation files are currently written in Japanese. Please use translation tools if necessary._
 
 - [docs/SETUP.md](docs/SETUP.md) — Detailed setup instructions
+- [docs/DEPLOY.md](docs/DEPLOY.md) — Deployment (systemd, dedicated VM)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — System architecture & data flow
 - [docs/TOOLS.md](docs/TOOLS.md) — Tool expansion guide
 - [docs/DAEMON.md](docs/DAEMON.md) — Daemon lifecycle & events
