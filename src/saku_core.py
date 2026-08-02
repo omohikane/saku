@@ -113,29 +113,57 @@ def exec_tools(raw: str) -> list[str]:
 
 
 # ── Prompt Construction ─────────────────────────────────
+_prompt_cache: dict = {"static": None}
+
+
 def build_system_prompt() -> str:
-    """Build system prompt from SAKU's identity files."""
+    """Build system prompt from SAKU's identity files.
+
+    固定部分（identity/genome/capabilities/指示）はキャッシュし、可変部分
+    （現在時刻・現在の状態）だけ毎回組み立てる。冒頭を固定することで
+    llama.cpp の cache reuse / API の prefix caching を効かせやすくする。
+    """
+    static = _prompt_cache["static"]
+    if static is None:
+        static = _build_static_sections()
+        _prompt_cache["static"] = static
+    volatile = _build_volatile_sections()
+    return f"{static}\n\n{volatile}" if volatile else static
+
+
+def reload_system_prompt_cache() -> None:
+    """静的プロンプトのキャッシュを破棄する（/reload 等で呼ぶ）。"""
+    _prompt_cache["static"] = None
+
+
+def _build_volatile_sections() -> str:
+    """可変部分: 現在の状態（meta.md）と現在時刻。"""
+    meta = load_file(MEMORY_ROOT / "meta.md")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    sections = []
+    if meta:
+        sections.append(("# Current State", meta))
+    sections.append(("# Current Time", f"現在: {now}"))
+    return "\n\n".join(f"{title}\n{body}" for title, body in sections if body)
+
+
+def _build_static_sections() -> str:
+    """固定部分: identity / genome / principles / skills / capabilities / 指示。"""
     # genome lives in identity/ next to config.toml
     genome_path = CODE_ROOT.parent / "identity" / "genome.md"
     soul = load_file(MEMORY_ROOT / "identity/soul.md")
     genome = compress(load_file(genome_path), MAX_GENOME_CHARS)
-    meta = load_file(MEMORY_ROOT / "meta.md")
     principles = load_dir(MEMORY_ROOT / "principles")
     skills = load_dir(MEMORY_ROOT / "skills")
-
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     sections = [
         ("# SAKU Core", soul),
         ("# Identity", genome),
-        ("# Current State", meta),
     ]
     if principles:
         sections.append(("# Learned Principles", principles))
     if skills:
         sections.append(("# Acquired Skills", skills))
-
-    sections.append(("# Current Time", f"現在: {now}"))
 
     sections.append(
         (
@@ -454,6 +482,7 @@ def main():
             continue
 
         if user_input == "/reload":
+            reload_system_prompt_cache()
             system_prompt = build_system_prompt()
             history[0] = {"role": "system", "content": system_prompt}
             print("[system prompt reloaded from disk]")
