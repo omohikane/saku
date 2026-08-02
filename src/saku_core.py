@@ -20,104 +20,53 @@ Changelog:
 """
 
 import importlib
-import json
-import os
 import re
 import sys
 from datetime import datetime
 from pathlib import Path
 
-import requests
-
-import tomllib
-
 # ── Config ──────────────────────────────────────────────
 CODE_ROOT = Path(__file__).parent   # src/ or _saku/
 
-def _load_config() -> tuple[dict, Path]:
-    """Load config.toml from CODE_ROOT or CODE_ROOT.parent."""
-    for base in (CODE_ROOT, CODE_ROOT.parent):
-        for name in ("config.toml", "config.example.toml"):
-            p = base / name
-            if p.exists():
-                with open(p, "rb") as f:
-                    return tomllib.load(f), base
-    return {}, CODE_ROOT.parent
+# Ensure repo root (parent of src/) is on path so the `saku` package is importable.
+_REPO_ROOT = CODE_ROOT.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
-_cfg, _config_base = _load_config()
+from saku import config as saku_config
+from saku.llm import STOP_TOKENS, chat_stream as _llm_chat_stream
+
+_cfg, _config_base = saku_config.load_config()
 
 # Resolve memory root path (can be relative to config base or absolute)
-_mem_rel = _cfg.get("memory", {}).get("root", "memory")
-_mem_path = Path(_mem_rel)
-if _mem_path.is_absolute():
-    MEMORY_ROOT = _mem_path
-else:
-    MEMORY_ROOT = (_config_base / _mem_rel).resolve()
+MEMORY_ROOT = saku_config.resolve_memory_root(_cfg, _config_base)
 
 SAKU_ROOT = MEMORY_ROOT  # alias kept for backward-compat with tools
 
-# Load LLM configuration with profile support
+# LLM 設定は per-call で渡す。グローバルは既存ツール/モジュールとの互換のため残す。
 def _load_llm_config() -> tuple[str, str, str]:
     """Load LLM config from active profile or fallback to legacy settings."""
-    llm_cfg = _cfg.get("llm", {})
-    
-    # Try to load from active profile
-    active_profile = llm_cfg.get("active_profile", "")
-    if active_profile:
-        profiles = llm_cfg.get("profiles", {})
-        if active_profile in profiles:
-            profile = profiles[active_profile]
-            api_url = profile.get("api_url", "")
-            api_key = profile.get("api_key", "")
-            model = profile.get("model", "")
-            
-            # Support environment variable fallback for API keys
-            if not api_key:
-                if active_profile == "anthropic":
-                    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-                else:
-                    api_key = os.environ.get("OPENAI_API_KEY", "")
-            
-            return api_url, api_key, model
-    
-    # Fallback to legacy settings
-    api_url = llm_cfg.get("api_url", "http://127.0.0.1:8080/v1/chat/completions")
-    api_key = llm_cfg.get("api_key", os.environ.get("OPENAI_API_KEY", ""))
-    model = llm_cfg.get("model", "")
-    
-    return api_url, api_key, model
+    llm = saku_config.load_active_llm(_cfg)
+    return llm.api_url, llm.api_key, llm.model
 
-API_URL, API_KEY, MODEL_NAME = _load_llm_config()
+_current_llm = saku_config.load_active_llm(_cfg)
+API_URL, API_KEY, MODEL_NAME = _current_llm.api_url, _current_llm.api_key, _current_llm.model
 
 def switch_llm_profile(profile_name: str) -> str:
     """Switch LLM profile dynamically and update global variables."""
-    global API_URL, API_KEY, MODEL_NAME
-    
-    llm_cfg = _cfg.get("llm", {})
-    profiles = llm_cfg.get("profiles", {})
-    
-    if profile_name not in profiles:
+    global API_URL, API_KEY, MODEL_NAME, _current_llm
+
+    llm = saku_config.load_profile(_cfg, profile_name)
+    if llm is None:
+        profiles = _cfg.get("llm", {}).get("profiles", {})
         return f"[ERROR] Profile '{profile_name}' not found. Available: {', '.join(profiles.keys())}"
-    
-    profile = profiles[profile_name]
-    API_URL = profile.get("api_url", "")
-    API_KEY = profile.get("api_key", "")
-    MODEL_NAME = profile.get("model", "")
-    
-    # Support environment variable fallback for API keys
-    if not API_KEY:
-        if profile_name == "anthropic":
-            API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-        else:
-            API_KEY = os.environ.get("OPENAI_API_KEY", "")
-    
+
+    API_URL, API_KEY, MODEL_NAME = llm.api_url, llm.api_key, llm.model
+    _current_llm = llm
     return f"[OK] Switched to profile: {profile_name} (API: {API_URL}, Model: {MODEL_NAME})"
 
 MAX_GENOME_CHARS = 3000
 MAX_HISTORY_MESSAGES = _cfg.get("agent", {}).get("max_history_messages", 30)
-
-# Stop tokens: prevent model from mimicking Owner's side of the conversation
-STOP_TOKENS = ["Owner:", "Owner>", "\nOwner:", "\nOwner>", "\n**Owner**", "**Owner**"]
 
 
 # ── File I/O ────────────────────────────────────────────
@@ -505,94 +454,10 @@ def chat_stream(messages: list[dict]) -> str:
 
     Returns the FULL response (including <think> blocks).
     Screen output hides <think>...</think> content.
+
+    ※ 実装は saku/llm.py の per-call 版へ委譲（設定は _current_llm）。
     """
-    payload = {
-        "messages": messages,
-        "stream": True,
-        "temperature": 0.7,
-        "top_p": 0.9,
-        "stop": STOP_TOKENS,
-    }
-    if MODEL_NAME:
-        payload["model"] = MODEL_NAME
-
-    headers = {}
-    if API_KEY:
-        headers["Authorization"] = f"Bearer {API_KEY}"
-
-    try:
-        resp = requests.post(
-            API_URL,
-            json=payload,
-            headers=headers,
-            stream=True,
-            timeout=300,
-        )
-        resp.raise_for_status()
-    except requests.ConnectionError:
-        return "[ERROR] llama-server not reachable at " + API_URL
-    except requests.HTTPError as e:
-        # Include response body to help diagnose 400/422 errors from llama-server
-        try:
-            detail = e.response.text[:300]
-        except Exception:
-            detail = ""
-        return f"[ERROR] {e}" + (f"\n{detail}" if detail else "")
-
-    full = ""
-    in_thinking = False
-    tag_buffer = ""
-
-    for line in resp.iter_lines():
-        if not line:
-            continue
-        decoded = line.decode("utf-8")
-        if not decoded.startswith("data: "):
-            continue
-        payload = decoded[6:]
-        if payload.strip() == "[DONE]":
-            break
-        try:
-            chunk = json.loads(payload)
-            delta = chunk["choices"][0]["delta"].get("content", "")
-            if not delta:
-                continue
-        except (json.JSONDecodeError, KeyError, IndexError):
-            continue
-
-        full += delta
-
-        for ch in delta:
-            tag_buffer += ch
-
-            if not in_thinking:
-                if "<think>" in tag_buffer:
-                    before = tag_buffer.split("<think>")[0]
-                    if before:
-                        print(before, end="", flush=True)
-                    tag_buffer = ""
-                    in_thinking = True
-                elif "<" in tag_buffer:
-                    if len(tag_buffer) >= 7:
-                        print(tag_buffer, end="", flush=True)
-                        tag_buffer = ""
-                else:
-                    print(tag_buffer, end="", flush=True)
-                    tag_buffer = ""
-            else:
-                if "</think>" in tag_buffer:
-                    after = tag_buffer.split("</think>")[-1]
-                    tag_buffer = after
-                    in_thinking = False
-                    if tag_buffer and "<" not in tag_buffer:
-                        print(tag_buffer, end="", flush=True)
-                        tag_buffer = ""
-
-    if tag_buffer and not in_thinking:
-        print(tag_buffer, end="", flush=True)
-
-    print()
-    return full
+    return _llm_chat_stream(messages, _current_llm)
 
 
 # ── Journal ─────────────────────────────────────────────

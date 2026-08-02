@@ -1,0 +1,28 @@
+[project]
+name = "saku"
+version = "0.5.0"
+description = "Self-Adapting Knowledge Unit — local LLM agent framework"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "requests>=2.31",
+]
+
+[project.scripts]
+saku = "saku.cli:main"
+
+[project.optional-dependencies]
+# 追加機能は対応 Phase で有効化する（Phase C で mcp、Phase B で ui）
+mcp = ["mcp>=1.0"]
+ui = ["fastapi", "uvicorn", "sse-starlette"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["saku"]
+
+[tool.uv]
+package = true

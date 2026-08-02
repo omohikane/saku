@@ -16,6 +16,23 @@ model = ""
 api_url = "http://127.0.0.1:8080/v1/chat/completions"
 api_key = ""
 model = ""
+# サーバ起動時の -c 値と、エージェントの作業予算（VRAM/RAM制約で決める）
+# context_window = 8192          # llama-server -c の値
+# working_budget_tokens = 4096   # エージェントが使う上限（-c より低めに設定）
+
+# LLM instances - 複数ローカルサーバを名前付きで使い分ける（Phase A: 定義のみ / Phase C以降で本格利用）
+# インスタンスはプロファイルを参照し、必要に応じて上書きできる。
+# [llm.instances.main]
+# profile = "local"
+# model = ""
+# context_window = 8192
+# working_budget_tokens = 4096
+#
+# [llm.instances.fast]
+# profile = "local"
+# api_url = "http://127.0.0.1:8081/v1/chat/completions"  # 2台目の小さめモデル
+# context_window = 4096
+# working_budget_tokens = 2048
 
 [llm.profiles.openai]
 # OpenAI API
@@ -50,3 +67,41 @@ inbox_poll_seconds = 3600             # Inbox scan interval (1 hour)
 archive_after_inactive_seconds = 1800 # Archive chat after 30 min inactivity
 archive_after_turns = 10              # Archive chat after 10 turns
 auto_initiate_cooldown_seconds = 28800 # SAKU self-initiates every 8 hours
+
+# [context] - コンテキスト管理（Phase B で実装。定義のみ）
+# 作業予算の何割で自動コンパクションするか（0.7 = 70%）
+# compaction_trigger = 0.7
+# コンパクション後に保持する直近トークン数
+# keep_recent_tokens = 2000
+# 古いツール結果を縮小/削除するか
+# prune_tool_results = true
+# ツール結果を残す最大文字数
+# max_tool_result_chars = 2000
+
+# [channels] - チャネル抽象化（Phase B で実装。定義のみ）
+# 送受信に使うチャネル（webui / chatmd / discord）
+# enabled = ["webui", "chatmd"]
+# 問いかけ・アラートの送信先
+# proactive = ["webui"]
+
+# [mcp] - MCP サーバ設定（Phase C で実装。定義のみ）
+# サーバ公開時の認可トークン（外部から SAKU を操作するための API トークン）
+# [mcp.server]
+# enable = false
+# token = "change-me"
+# bind = "127.0.0.1"
+# port = 8765
+# 接続する外部 MCP サーバ（クライアント方向）
+# [mcp.servers.homeassistant]
+# url = "http://127.0.0.1:8766/mcp"
+
+# [ui] - Web UI 設定（Phase B で実装。定義のみ）
+# [ui]
+# host = "127.0.0.1"
+# port = 8787
+
+# [ops] - ホーム運用の承認境界（Phase E で実装。定義のみ）
+# 自動実行OKの操作（読み取り系）と、承認必須の操作（破壊的）を分離する
+# [ops]
+# auto_actions = ["ping", "disk_usage", "service_status"]
+# approve_required = ["restart_service", "block_ip", "apply_firewall"]
