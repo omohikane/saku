@@ -154,11 +154,27 @@ memory/
 | A | `saku/` パッケージ化・`config.py`・`llm.py` per-call化 | ✅ 完了 |
 | B-1 | `agent_loop.py` 共通化・`context.py`（予算/pruning/コンパクション）・`transport.py`・`thinking.py` | ✅ 完了 |
 | B-2 | プロンプト固定prefix/可変suffix分離（静的キャッシュ） | ✅ 完了 |
-| B-3 | Web UI（stdlib・SSEストリーミング・`saku ui`）＋daemonのproactive→UI配信 | ✅ 完了 |
-| B-4 | チャネル抽象化（`saku/channels/`・chatmdリファクタ） | 未着手 |
-| C | ポリグロットツール・MCP双方向 | 未着手 |
+| B-3 | Web UI（stdlib・SSEストリーミング）＋daemonのproactive→UI配信 | ✅ 完了 |
+| — | 運用: `saku setup`・環境変数展開・systemd/DEPLOY・README更新 | ✅ 完了 |
+| — | 出力改善: ツール構文の非表示・繰り返し防止 | ✅ 完了 |
+| B-4 | チャネル抽象化（`saku/channels/`・chatmd分離） | 後回し（Discordをやる時に） |
+| C-1 | ポリグロットツール | 保留（必要になるまで。ローカルLLM前提ならPythonで十分の可能性） |
+| C-2 | MCPクライアント | 未着手（ホーム連携の土台） |
+| C-3 | MCPサーバ | 未着手 |
 | D | 子エージェント・MEMORY.md/wiki・dreaming | 未着手 |
 | E | ホームNOC/SOC | 未着手 |
+
+## 優先順位（見直し版・2026-08）
+
+実運用でコンテキスト肥大（principles 91KB）が発生し、現状の文字数上限は対症療法である
+ことが判明した。そのため「能力強化」より先に「記憶の整理・再配置」を優先する。
+
+1. **D-1 記憶整理**: `MEMORY.md` 導入 + `dreaming.py`（journal/monologue → 重要度スコア → 昇格）← コンテキスト肥大の根本対策
+2. **D-2 知識ベース**: `wiki/`（Zettelkasten式・自己整理・リンク更新）
+3. **C-2 MCPクライアント**: 外部サーバ接続（ホーム連携・Phase Eの前提）
+4. **C-3 MCPサーバ**: トークン+scope認可で公開
+5. **B-4 チャネル抽象化**: Discord等の追加チャネルが必要になった時に
+6. **C-1 ポリグロット**: 保留
 
 Web UIは依存ゼロ（http.server + SSE）。詳細な経緯はコミットログを参照。
 
