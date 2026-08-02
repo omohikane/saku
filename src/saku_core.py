@@ -166,38 +166,43 @@ def reload_system_prompt_cache() -> None:
 
 
 def _build_volatile_sections() -> str:
-    """Volatile parts: current state (meta.md) and current time."""
+    """Volatile parts: current state (meta.md), recent principles/skills, and current time.
+
+    The growth-related parts (meta.md, principles/, skills/) are rebuilt on every call
+    so that SAKU's own growth is reflected in the prompt immediately.
+    """
     meta = load_file(MEMORY_ROOT / "meta.md")
     meta = compress(meta, MAX_META_CHARS)
+    principles = load_recent_dir(MEMORY_ROOT / "principles", MAX_PRINCIPLES_CHARS)
+    skills = load_recent_dir(MEMORY_ROOT / "skills", MAX_SKILLS_CHARS)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
     sections = []
     if meta:
         sections.append(("# Current State", meta))
+    if principles:
+        sections.append(("# Learned Principles", principles))
+    if skills:
+        sections.append(("# Acquired Skills", skills))
     sections.append(("# Current Time", f"現在: {now}"))
     return "\n\n".join(f"{title}\n{body}" for title, body in sections if body)
 
 
 def _build_static_sections() -> str:
-    """Static parts: identity / genome / principles / skills / capabilities / instructions.
+    """Static parts: soul / genome / capabilities / instructions (cached for cache reuse).
 
-    principles / skills are limited from the most recent up to the char limit (so the
-    context is not crowded even as memory grows. Details are retrieved via SEARCH_NOTES).
+    Growth-related parts (meta.md, principles/, skills/) are built fresh in
+    ``_build_volatile_sections`` so they reflect immediately.
     """
     # genome lives in identity/ next to config.toml
     genome_path = CODE_ROOT.parent / "identity" / "genome.md"
     soul = load_file(MEMORY_ROOT / "identity/soul.md")
     genome = compress(load_file(genome_path), MAX_GENOME_CHARS)
-    principles = load_recent_dir(MEMORY_ROOT / "principles", MAX_PRINCIPLES_CHARS)
-    skills = load_recent_dir(MEMORY_ROOT / "skills", MAX_SKILLS_CHARS)
 
     sections = [
         ("# SAKU Core", soul),
         ("# Identity", genome),
     ]
-    if principles:
-        sections.append(("# Learned Principles", principles))
-    if skills:
-        sections.append(("# Acquired Skills", skills))
 
     sections.append(
         (
