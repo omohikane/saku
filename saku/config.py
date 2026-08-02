@@ -5,12 +5,25 @@ Provides ``LlmConfig`` to pass LLM settings per call.
 """
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import tomllib
 
 CODE_ROOT = Path(__file__).resolve().parent
+
+
+def expand_env(value: str) -> str:
+    """Expand ${VAR} references in a config value using environment variables.
+
+    Unset variables are left as-is (``${VAR}`` stays literal) so that the value
+    remains inspectable instead of silently becoming empty.
+    """
+    def _sub(m: re.Match) -> str:
+        return os.environ.get(m.group(1), m.group(0))
+
+    return re.sub(r"\$\{([^}]+)\}", _sub, value)
 
 
 # ── Config Loading ──────────────────────────────────────
@@ -29,8 +42,12 @@ def load_config() -> tuple[dict, Path]:
 
 
 def resolve_memory_root(cfg: dict, config_base: Path) -> Path:
-    """Resolve the memory root. Relative paths are relative to the config base; absolute paths pass through."""
-    rel = cfg.get("memory", {}).get("root", "memory")
+    """Resolve the memory root. Relative paths are relative to the config base; absolute paths pass through.
+
+    Supports ``${VAR}`` environment variable expansion (e.g. ``${SAKU_MEMORY_ROOT}``)
+    so the same config file works across machines.
+    """
+    rel = expand_env(cfg.get("memory", {}).get("root", "memory"))
     path = Path(rel)
     if path.is_absolute():
         return path

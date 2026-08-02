@@ -48,7 +48,12 @@ def main(argv: list[str] | None = None) -> int:
         print("[saku] 'mcp' は Phase C で実装予定です。")
         return 0
 
-    print("Usage: saku [chat|daemon|ui|mcp]")
+    if cmd == "setup":
+        from saku.setup import main as setup_main
+
+        return setup_main(args[1:])
+
+    print("Usage: saku [chat|daemon|ui|setup|mcp]")
     return 0
 
 

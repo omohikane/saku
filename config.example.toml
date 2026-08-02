@@ -55,7 +55,14 @@ model = "claude-3-5-sonnet-20240620"
 [memory]
 # Path to the memory directory, relative to this config file
 # Default: memory/ in the repo root
+#
+# 絶対パスや環境変数（${VAR}）も使えます。Obsidian vault など別ディレクトリを
+# 指す場合に便利です:
+#   root = "/path/to/vault/_saku/memory"
+#   root = "${SAKU_MEMORY_ROOT}"
 root = "memory"
+
+# メモリ構造の初期化: `saku setup [path]` を実行するとこのrootに標準構造を作ります。
 
 [agent]
 max_history_messages = 30
