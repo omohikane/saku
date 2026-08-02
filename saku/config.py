@@ -116,6 +116,11 @@ def load_llm_instance(cfg: dict, name: str = "main") -> LlmConfig:
 
 
 # ── コンテキスト設定（Phase B で使用）──────────────────────
+# 作業予算が未設定（working_budget_tokens = 0）のときの既定値。
+# 8K コンテキスト前提で約半分、と VRAM/RAM 制約を踏まえた安全側の値。
+DEFAULT_WORKING_BUDGET_TOKENS = 4096
+
+
 @dataclass
 class ContextConfig:
     compaction_trigger: float = 0.7  # 予算の何割で自動コンパクションするか
