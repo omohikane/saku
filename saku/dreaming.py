@@ -14,14 +14,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-_CODE_ROOT = Path(__file__).resolve().parent.parent / "src"
-if str(_CODE_ROOT) not in sys.path:
-    sys.path.insert(0, str(_CODE_ROOT))
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-import saku_core as agent
+from saku import core as agent
 from saku.agent_loop import run_agent_loop
 
 # category -> MEMORY.md ## section heading
@@ -124,10 +121,15 @@ def _insert_after_heading(content: str, heading: str, entry: str) -> str:
 
 
 def append_items(memory_path: Path, items: list[tuple[str, str]], date: str) -> list[str]:
-    """Append items to MEMORY.md under their section. Returns newly added contents."""
-    if not memory_path.exists():
+    """Append items to MEMORY.md under their section. Returns newly added contents.
+
+    Recovers a missing, empty, or corrupted MEMORY.md by re-initializing the header.
+    """
+    if not memory_path.exists() or memory_path.stat().st_size == 0:
         memory_path.write_text(MEMORY_HEADER, encoding="utf-8")
     content = memory_path.read_text(encoding="utf-8")
+    if "# MEMORY" not in content:
+        content = MEMORY_HEADER + "\n" + content.lstrip()
 
     added = []
     for category, text in items:

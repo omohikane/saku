@@ -7,6 +7,12 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 
 ## [Unreleased]
 
+### Changed
+
+- Integrated legacy `src/` into the `saku/` package: `core.py`, `daemon.py`, `reflection.py`, `tools/`. `src/` removed.
+- Tests moved to `tests/`.
+- Fixed daemon inbox scanning when `[memory] inbox_dir` points outside the memory root.
+
 ### Planned
 
 - Memory search abstraction layer (SQLite / Vector DB)
@@ -14,6 +20,7 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 - Home device management (Matter / Home Assistant) via MCP
 - Polyglot tool plugins (any language)
 - Detailed growth examples in `examples/growth/`
+- Longitudinal self-growth evaluation (`evals/`)
 
 ---
 

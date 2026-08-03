@@ -40,7 +40,7 @@ def test_build_child_prompt():
 
 def test_delegate_missing_child():
     with tempfile.TemporaryDirectory() as tmp:
-        res = subagent.delegate(Path(tmp), CODE_ROOT, "nobody", "task")
+        res = subagent.delegate(Path(tmp), _REPO_ROOT / "saku", "nobody", "task")
         assert "not found" in res
 
 
@@ -60,7 +60,7 @@ def test_delegate_runs_child_loop():
         original = al.chat_stream
         al.chat_stream = fake_chat_stream
         try:
-            res = subagent.delegate(root, CODE_ROOT, "mei", "調べて")
+            res = subagent.delegate(root, _REPO_ROOT / "saku", "mei", "調べて")
         finally:
             al.chat_stream = original
 
@@ -71,7 +71,7 @@ def test_delegate_runs_child_loop():
 def test_delegation_depth_guard():
     subagent._delegation_depth = subagent.MAX_DELEGATION_DEPTH
     try:
-        res = subagent.delegate(Path("/tmp"), CODE_ROOT, "x", "task")
+        res = subagent.delegate(Path("/tmp"), _REPO_ROOT / "saku", "x", "task")
         assert "depth limit" in res
     finally:
         subagent._delegation_depth = 0

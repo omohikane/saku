@@ -15,14 +15,12 @@ from pathlib import Path
 from mcp.server.lowlevel import Server
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 
-_CODE_ROOT = Path(__file__).resolve().parent.parent / "src"
-if str(_CODE_ROOT) not in sys.path:
-    sys.path.insert(0, str(_CODE_ROOT))
+_CODE_ROOT = Path(__file__).resolve().parent  # saku/ (code package)
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-import saku_core as agent
+from saku import core as agent
 
 _TOOL_SPECS = [
     Tool(
@@ -63,7 +61,7 @@ _TOOL_SPECS = [
 
 def _call_system_tool(name: str, args: dict) -> str:
     """Load and run the matching system tool against the memory root (PathPolicy scoped)."""
-    tool_path = _CODE_ROOT / "system_tools" / f"{name}.py"
+    tool_path = _CODE_ROOT / "tools" / f"{name}.py"
     spec = importlib.util.spec_from_file_location(f"_mcp_tool_{name}", tool_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[f"_mcp_tool_{name}"] = module

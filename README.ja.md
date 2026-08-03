@@ -131,6 +131,9 @@ identity/
     saku.md            # 実装例（朔）
 
 saku/                  # コアパッケージ（Python、uv管理）
+  core.py              # エージェントエンジン（LLM呼び出し・プロンプト・journal）
+  daemon.py            # バックグラウンドスケジューラ（自律ティック・振り返り・dreaming）
+  reflection.py        # 夜間振り返り（principles統合・meta.md更新）
   cli.py               # CLIエントリ: chat / daemon / ui / setup / dream / mcp
   config.py            # 設定読み込み・バリデーション（paths/llm/channels/mcp）
   llm.py               # LLMクライアント（per-call設定、マルチインスタンス）
@@ -145,12 +148,7 @@ saku/                  # コアパッケージ（Python、uv管理）
   mcp.py               # MCPクライアント（外部サーバツール）
   mcp_server.py        # MCPサーバ（SAKUの記憶を公開・Bearerトークン認証）
   setup.py             # メモリ/vault構造の初期化
-
-src/                   # レガシーモジュール（saku/ へ移行中）
-  saku_core.py         # エージェントエンジン（旧エントリポイント）
-  daemon.py            # バックグラウンドスケジューラ（自律ティック・振り返り・dreaming）
-  reflect.py           # 夜間振り返り
-  system_tools/        # システムツール（朔は読取専用）
+  tools/               # 組み込みツール（朔は読取専用）
 
 sample/                # Obsidianセットアップ用テンプレート
   identity/
@@ -211,6 +209,11 @@ SAKUは以下のメモリパイプラインで継続的に成長します:
 - **子エージェント** — 役割別の子AIを `[[SPAWN_CHILD]]` / `[[DELEGATE]]` で生成・委譲
 
 成長はプロンプトに即時反映されます（`MEMORY.md`・直近の `principles/`・`skills/` を毎回再構築）。
+
+> **技術的に誠実な定義**: SAKUが進化させるのは**永続状態・ツール・知識・振る舞い**であり、
+> **モデル重みそのものではありません**。LLM自体は不変で、育つのは記憶・スキル・wiki・
+> 応答を形作る習慣です。成長は [`evals/longitudinal/`](evals/longitudinal/) の
+> スナップショット比較ツールで測れます。
 
 ---
 
@@ -275,10 +278,10 @@ url = "http://127.0.0.1:8766/mcp"
 
 ### システムツール（内蔵、朔は読取専用）
 
-`src/system_tools/` に Python ファイルを追加するだけで新しいツールを使えます：
+`saku/tools/` に Python ファイルを追加するだけで新しいツールを使えます：
 
 ```python
-# src/system_tools/my_tool.py
+# saku/tools/my_tool.py
 from pathlib import Path
 
 def run(base: Path, path: str, body: str = "") -> str:
@@ -294,7 +297,7 @@ input here
 [[END]]
 ```
 
-登録不要。`src/system_tools/` に置くだけで動的にロードされます。
+登録不要。`saku/tools/` に置くだけで動的にロードされます。
 詳細は [docs/TOOLS.md](docs/TOOLS.md)。
 
 ### 朔の自作ツール（実行時に朔が作成）

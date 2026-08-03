@@ -65,7 +65,7 @@ def delegate(memory_root: Path, code_root: Path, name: str, task: str, llm_cfg=N
         if not task.strip():
             return "[ERROR] task is empty"
 
-        import saku_core as agent
+        from saku import core as agent
         from saku.agent_loop import run_agent_loop
 
         system_prompt = build_child_prompt(name, genome)

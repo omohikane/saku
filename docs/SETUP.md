@@ -79,8 +79,7 @@ Make sure the server is reachable at the URL configured in `config.toml`.
 Ideal for testing your agent, checking responses, and testing tools.
 
 ```bash
-cd src
-python saku_core.py
+uv run python -m saku.cli chat
 ```
 
 Type your message and press Enter. Type `/exit` to quit, `/clear` to reset the conversation, or `/reload` to reload the system prompt and genome definitions.
@@ -89,8 +88,8 @@ Type your message and press Enter. Type `/exit` to quit, `/clear` to reset the c
 Fires up the autonomous loop. SAKU will monitor `chat.md`, write daily thoughts, study and run experiments periodically, and run night-time self-reflections.
 
 ```bash
-cd src
-nohup python daemon.py > ../saku.log 2>&1 &
+uv run python -m saku.ui        # Web UI + daemon in one process (recommended)
+uv run python -m saku.cli daemon  # daemon only
 ```
 
 Once running, SAKU will create `chat.md` in the memory directory. You can communicate with SAKU by writing messages ending with `>` in `chat.md`.

@@ -27,10 +27,10 @@ jobs:
 
       - name: Run test suite
         run: |
-          cd src
-          for t in test_*.py; do
+          cd tests
+          for t in $(find . -name 'test_*.py' | sort); do
             # test_mcp_server.py is a stdio server fixture (spawned by test_mcp.py), not a test
-            [ "$t" = "test_mcp_server.py" ] && continue
+            [ "$t" = "./test_mcp_server.py" ] && continue
             echo "== $t =="
             uv run python "$t"
           done

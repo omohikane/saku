@@ -113,6 +113,9 @@ identity/
     saku.md            # Reference implementation (anonymized)
 
 saku/                  # Core package (Python, uv-managed)
+  core.py              # Agent core engine (LLM calls, prompt builder, journal)
+  daemon.py            # Background scheduler (autonomous ticks, reflection, dreaming)
+  reflection.py        # Nightly reflection (consolidates principles, updates meta.md)
   cli.py               # CLI entry: chat / daemon / ui / setup / dream / mcp
   config.py            # Config loading + validation (paths, llm, channels, mcp)
   llm.py               # LLM client (per-call settings, multi-instance)
@@ -127,12 +130,7 @@ saku/                  # Core package (Python, uv-managed)
   mcp.py               # MCP client (external server tools)
   mcp_server.py        # MCP server (expose SAKU memory, Bearer-token auth)
   setup.py             # Initialize the memory/vault structure
-
-src/                   # Legacy modules (being migrated into saku/)
-  saku_core.py         # Agent core engine (legacy entry point)
-  daemon.py            # Background scheduler (autonomous ticks, reflection, dreaming)
-  reflect.py           # Nightly reflection script (updates meta.md)
-  system_tools/        # System-level tool plugins (read-only for SAKU)
+  tools/               # Built-in tool plugins (read-only for SAKU)
 
 sample/                # Template files to copy when setting up a vault
   identity/
@@ -193,6 +191,12 @@ SAKU grows continuously through a memory pipeline:
 - **Child agents** — SAKU can spawn specialized sub-agents (`[[SPAWN_CHILD]]` / `[[DELEGATE]]`) for specific roles (research, monitoring, writing, ...).
 
 Growth is reflected in the prompt immediately: `MEMORY.md`, recent `principles/`, and `skills/` are rebuilt on every call.
+
+> **Honest framing**: SAKU evolves its **persistent state, tools, knowledge and
+> behaviour** — not the underlying model weights. The LLM itself is unchanged;
+> what grows is the memory, skills, wiki, and habits that shape its responses.
+> Growth is measurable: see [`evals/longitudinal/`](evals/longitudinal/) for the
+> snapshot/compare tooling.
 
 ---
 
@@ -260,10 +264,10 @@ There are two layers of tool extensibility:
 
 ### System Tools (built-in, read-only for SAKU)
 
-Drop a Python script into `src/system_tools/` to add a new capability visible to SAKU:
+Drop a Python script into `saku/tools/` to add a new capability visible to SAKU:
 
 ```python
-# src/system_tools/my_tool.py
+# saku/tools/my_tool.py
 from pathlib import Path
 
 def run(base: Path, path: str, body: str = "") -> str:

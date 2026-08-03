@@ -28,12 +28,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from saku import config as saku_config
 from saku.agent_loop import run_agent_loop
-
-# Dependent core (saku_core lives in src/)
-_SRC = _REPO_ROOT / "src"
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
-import saku_core as agent
+from saku import core as agent
 
 _cfg, _config_base = saku_config.load_config()
 _MEMORY_ROOT = agent.MEMORY_ROOT
@@ -283,7 +278,7 @@ def _start_daemon_thread() -> None:
 
     def _run() -> None:
         try:
-            import daemon as daemon_mod  # lives in src/
+            from saku import daemon as daemon_mod
 
             daemon_mod.main()
         except Exception as e:

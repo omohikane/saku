@@ -13,8 +13,8 @@ _REPO_ROOT = CODE_ROOT.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-import saku_core as agent
-from system_tools import read_file, list_dir, write_file, search_notes, append_file, delete_file, move_file, grep_code
+from saku import core as agent
+from saku.tools import read_file, list_dir, write_file, search_notes, append_file, delete_file, move_file, grep_code
 
 
 def _setup_temp_saku() -> tuple[Path, Path]:
@@ -32,8 +32,6 @@ def _setup_temp_saku() -> tuple[Path, Path]:
     (saku / "tools").mkdir()
     (saku / "state").mkdir()
     (saku / "children").mkdir()
-    (saku / "drafts").mkdir()
-    (saku / "src").mkdir()
     return tmp, saku
 
 
@@ -149,15 +147,15 @@ def run_tests():
         print("    -> PASS")
 
         # 10. Grep code test
-        print("[10] Test grep_code in system_tools/ and tools/:")
+        print("[10] Test grep_code in saku/tools/ and tools/:")
         res = grep_code.run(SAKU_ROOT, body="def run")
         assert "Found" in res, f"Expected results, got: {res[:100]}"
         print("    -> PASS")
 
-        # 11. Write denial for src/ (system_tools is off-limits)
-        print("[11] Test write_file denial for src/system_tools/:")
-        res = write_file.run(SAKU_ROOT, "src/system_tools/write_test.py", "test")
-        assert "[DENY]" in res, f"Expected DENY for src/, got: {res}"
+        # 11. Write denial for the code directory (saku/ is off-limits)
+        print("[11] Test write_file denial for saku/tools/:")
+        res = write_file.run(SAKU_ROOT, "saku/tools/write_test.py", "test")
+        assert "[DENY]" in res, f"Expected DENY for saku/, got: {res}"
         print("    -> PASS")
 
         print("[*] All integration tests PASSED!")

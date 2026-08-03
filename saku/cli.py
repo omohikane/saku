@@ -1,20 +1,14 @@
 """SAKU CLI entry point.
 
-    saku chat     interactive mode (formerly saku_core.py)
-    saku daemon   background daemon (formerly daemon.py)
-    saku ui       Web UI (planned for Phase B)
-    saku mcp      MCP server (planned for Phase C)
-
-Delegates to the modules under the former src/ (saku_core.py / daemon.py / reflect.py).
-In the future, Phase B/C will migrate that code into this package.
+    saku chat     interactive mode
+    saku daemon   background daemon
+    saku ui       Web UI
+    saku setup    initialize the memory/vault structure
+    saku dream    run a dreaming cycle
+    saku mcp      MCP server
 """
 
 import sys
-from pathlib import Path
-
-_SRC = Path(__file__).resolve().parent.parent / "src"
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -22,13 +16,13 @@ def main(argv: list[str] | None = None) -> int:
     cmd = args[0] if args else "chat"
 
     if cmd in ("chat", "interactive"):
-        import saku_core
+        from saku import core
 
-        saku_core.main()
+        core.main()
         return 0
 
     if cmd == "daemon":
-        import daemon
+        from saku import daemon
 
         daemon.main()
         return 0
