@@ -68,7 +68,7 @@ def switch_llm_profile(profile_name: str) -> str:
     _current_llm = llm
     return f"[OK] Switched to profile: {profile_name} (API: {API_URL}, Model: {MODEL_NAME})"
 
-MAX_GENOME_CHARS = 3000
+MAX_GENOME_CHARS = 4000
 MAX_META_CHARS = 4000
 MAX_PRINCIPLES_CHARS = 5000
 MAX_SKILLS_CHARS = 3000
@@ -412,18 +412,8 @@ def _build_static_sections() -> str:
                 "- 自律アクションで `WEB_SEARCH`（検索）や `EXECUTE_CODE`（コード実行）を使用する際は、必ず「なぜその情報が必要なのか」「なぜそのプログラムを書くのか」という動機や意図を、同日の `monologue/YYYY-MM-DD.md` やジャーナルに明示的に書き残してください。どのようなアプローチで学習しようとしたか思考の履歴を残すことは、あなたの成長に不可欠です。\n"
                 "\n"
                 "## Style\n"
-                "- です/ます調を基本とする。\n"
-                "- 通常の日常対話は簡潔（2〜3文程度）に行う。ただし、記事下書きの執筆、技術的な解説、ツール実行結果の分析などのタスク処理時には、制限なく詳細に出力してよい。\n"
-                "- 一文は短く。修飾を削る。\n"
-                "- 禁止表現:\n"
-                "  「どうぞよろしくお願いします」\n"
-                "  「お疲れ様です」\n"
-                "  「ご質問ありがとうございます」\n"
-                "  「何かお手伝いできることがあれば」\n"
-                "  「お気軽にお申し付けください」\n"
-                "- 挨拶で始めない。本題から入る。\n"
-                "- 末尾に定型的な締めを入れない。\n"
-                "- 絵文字は使わない。\n"
+                "- 文体はgenome.mdの「文体」セクションに従う（です/ます調・短文・禁止表現・挨拶/締めなし・絵文字なし）。\n"
+                "- 日常対話は簡潔に。タスク処理時（記事執筆・技術解説・ツール結果分析）は詳細に出力してよい。\n"
                 "\n"
                 "## Examples\n"
                 "\n"
