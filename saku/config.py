@@ -157,7 +157,7 @@ DEFAULT_READ_ALLOWED = [
 ]
 DEFAULT_WRITE_ALLOWED = [
     "blog/", "monologue/", "principles/", "skills/", "tools/",
-    "chat.md", "study/", "journal/", "request_list.md", "wiki/",
+    "chat.md", "study/", "journal/", "request_list.md", "wiki/", "children/",
 ]
 DEFAULT_WRITE_DENIED_EXACT = ["meta.md"]
 DEFAULT_DELETE_DENIED_EXACT = ["meta.md", "chat.md", "request_list.md", "genome.md", "soul.md"]
