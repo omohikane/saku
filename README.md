@@ -2,7 +2,7 @@
 
 English | [日本語 (Japanese)](README.ja.md)
 
-> A local LLM-powered autonomous agent framework that grows through daily reflection, web research, and personal writing.
+> A local, private, self-growing personal AI that lives in your home — a companion that manages your devices (NOC/SOC, smart home) and grows with you every day.
 
 ---
 
