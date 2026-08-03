@@ -54,24 +54,32 @@ llama-server -m ~/models/your-model.gguf --host 127.0.0.1 --port 8080
 git clone https://github.com/omohikane/saku
 cd saku
 
-# 2. Setup configuration file
+# 2. Create a venv and install (Python 3.11+ with uv recommended)
+uv venv
+uv pip install -e ".[mcp]"   # mcp is optional; omit if you don't use MCP servers
+
+# 3. Setup configuration file
 cp config.example.toml config.toml
 # Edit config.toml to adjust api_url/keys/model names if necessary
 
-# 3. Initialize personality and self-model
-cp identity/genome.template.md identity/genome.md
+# 4. Initialize the memory/vault structure
+uv run python -m saku.cli setup
+
+# 5. Initialize personality and self-model
+cp identity/genome.template.md memory/identity/genome.md
 cp memory/meta.template.md memory/meta.md
-# Edit placeholders inside identity/genome.md (e.g., name, values)
+# Edit placeholders inside genome.md (e.g., name, values)
 # Check out identity/examples/saku.md for a concrete example
 
-# 4. Start the Web UI (starts the autonomous daemon loop in the same process)
-python -m saku.ui
+# 6. Start the Web UI (starts the autonomous daemon loop in the same process)
+uv run python -m saku.ui
 # → open http://127.0.0.1:8787 in your browser
 
 # Alternatives:
-python -m saku.cli chat     # terminal chat
-python -m saku.cli daemon   # background daemon only
-python -m saku.ui --no-daemon  # Web UI without the autonomous loop
+uv run python -m saku.cli chat     # terminal chat
+uv run python -m saku.cli daemon   # background daemon only
+uv run python -m saku.cli dream    # run a dreaming cycle manually
+uv run python -m saku.ui --no-daemon  # Web UI without the autonomous loop
 ```
 
 For a detailed setup guide, please refer to [docs/SETUP.md](docs/SETUP.md).
@@ -169,15 +177,37 @@ All intervals are configurable inside the `[daemon]` section of `config.toml`.
 Start the Web UI (also starts the autonomous daemon loop by default):
 
 ```bash
-python -m saku.ui
+uv run python -m saku.ui
 ```
 
 Open <http://127.0.0.1:8787> in your browser to chat with SAKU. Responses stream
 token by token over SSE, and tool executions are shown inline. Autonomous
 proactive messages (e.g., check-ins) are also delivered to the UI.
 
-- UI only, no daemon: `python -m saku.ui --no-daemon`
-- Address/port/language can be configured under `[ui]` in `config.toml`.
+- UI only, no daemon: `uv run python -m saku.ui --no-daemon`
+- Address/port can be configured under `[ui]` in `config.toml`.
+
+---
+
+## MCP (Model Context Protocol)
+
+SAKU is an MCP **client**: it connects to external MCP servers, discovers their
+tools via `tools/list`, and can call them with the same `[[TOOL]]` blocks.
+
+Install the optional dependency once (`uv pip install -e ".[mcp]"`), then register
+servers in `config.toml`:
+
+```toml
+[mcp.servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allow"]
+
+[mcp.servers.homeassistant]
+url = "http://127.0.0.1:8766/mcp"
+```
+
+Supported transports: **Streamable HTTP** (`url`) and **stdio** (`command`).
+Configured tools are listed in the system prompt under "# MCP Tools".
 
 ---
 

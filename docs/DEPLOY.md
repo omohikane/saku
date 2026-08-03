@@ -2,18 +2,32 @@
 
 SAKUの起動方法と、常駐化（systemd）・専用VMでの運用方法。
 
+## 0. 環境準備（venv）
+
+システムpythonは環境によっては外部管理（PEP 668）でpipが使えないため、
+**プロジェクトvenv（uv）**を使います:
+
+```bash
+uv venv
+uv pip install -e ".[mcp]"   # mcpは任意（MCPサーバ接続をしないなら不要）
+```
+
+実行は `uv run python -m saku.ui` のように venv 経由で行います
+（`uv run` の代わりに `.venv/bin/python -m saku.ui` でも可）。
+
 ## 1. 手動起動
 
 リポジトリルートで実行:
 
 ```bash
 # Web UI + 自動ループ（daemon）を一緒に起動（推奨）
-python -m saku.ui
+uv run python -m saku.ui
 
 # オプション
-python -m saku.cli chat      # ターミナル対話のみ
-python -m saku.cli daemon    # daemonのみ
-python -m saku.ui --no-daemon  # Web UIのみ（自動ループなし）
+uv run python -m saku.cli chat      # ターミナル対話のみ
+uv run python -m saku.cli daemon    # daemonのみ
+uv run python -m saku.cli dream     # dreaming（記憶昇格）を手動実行
+uv run python -m saku.ui --no-daemon  # Web UIのみ（自動ループなし）
 ```
 
 ブラウザで http://127.0.0.1:8787 を開く。
@@ -34,8 +48,8 @@ root = "${SAKU_MEMORY_ROOT}"             # 環境変数（マシン間で可搬�
 初回は構造を作成します:
 
 ```bash
-python -m saku.cli setup            # 設定済みの [memory] root に作成
-python -m saku.cli setup /path/to/vault/_saku/memory   # 明示指定
+uv run python -m saku.cli setup            # 設定済みの [memory] root に作成
+uv run python -m saku.cli setup /path/to/vault/_saku/memory   # 明示指定
 ```
 
 ## 3. systemd での常駐（推奨）
@@ -46,8 +60,8 @@ python -m saku.cli setup /path/to/vault/_saku/memory   # 明示指定
 ```bash
 # 前提: リポジトリを /opt/saku に配置し、venv を作成
 cd /opt/saku
-python3 -m venv .venv
-.venv/bin/pip install -e .
+uv venv
+uv pip install -e ".[mcp]"
 
 # サービスファイルを編集（WorkingDirectory / SAKU_MEMORY_ROOT / User 等）
 sudo cp packaging/saku.service /etc/systemd/system/
@@ -63,9 +77,9 @@ systemctl status saku
 
 1. VM（Ubuntu等）に Python 3.11+ と uv を導入
 2. リポジトリを clone: `git clone ... saku && cd saku`
-3. `python3 -m venv .venv && .venv/bin/pip install -e .`
+3. `uv venv && uv pip install -e ".[mcp]"`
 4. `cp config.example.toml config.toml` して `[llm]` `[memory] root` を設定
-5. `python -m saku.cli setup` でメモリ構造を作成
+5. `uv run python -m saku.cli setup` でメモリ構造を作成
 6. 上記 systemd ユニットで常駐化
 7. 必要なら `[ui] host = "0.0.0.0"` にしてネットワーク公開（要セキュリティ考慮）
 

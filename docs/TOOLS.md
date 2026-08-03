@@ -56,6 +56,21 @@ SAKU comes with a built-in set of tools located in `src/system_tools/`:
 | `GIT` | Runs limited git commands (status, diff, add, commit, log, branch only). |
 | `API_CALL` | Makes HTTP GET/POST calls to external APIs (blocks private/localhost addresses). |
 | `SWITCH_PROFILE` | Switches the active LLM profile (local, openai, openrouter, anthropic). |
+| `WIKI` | Creates/updates knowledge-base notes in `wiki/`, adds `[[links]]`, and regenerates the index (`op="index"`). |
+
+## MCP Tools (external servers)
+
+When MCP servers are configured (`[mcp.servers.*]` in `config.toml`) and the optional
+`mcp` dependency is installed, their tools are discovered via `tools/list` and can be
+called like any built-in tool:
+
+```text
+[[TOOL_NAME arg1="value1" arg2="value2"]]
+[[END]]
+```
+
+Supported transports: Streamable HTTP (`url`) and stdio (`command`).
+
 
 ---
 

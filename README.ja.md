@@ -55,24 +55,32 @@ llama-server -m ~/models/your-model.gguf --host 127.0.0.1 --port 8080
 git clone https://github.com/omohikane/saku
 cd saku
 
-# 2. 設定ファイル
+# 2. venvを作成してインストール（Python 3.11+、uv推奨）
+uv venv
+uv pip install -e ".[mcp]"   # mcpは任意。使わないなら不要
+
+# 3. 設定ファイル
 cp config.example.toml config.toml
 # 必要に応じて [llm] api_url を編集
 
-# 3. エージェントの人格定義
-cp identity/genome.template.md identity/genome.md
+# 4. メモリ/vault構造の初期化
+uv run python -m saku.cli setup
+
+# 5. エージェントの人格定義
+cp identity/genome.template.md memory/identity/genome.md
 cp memory/meta.template.md memory/meta.md
-# identity/genome.md の {{...}} プレースホルダを編集
+# genome.md の {{...}} プレースホルダを編集
 # 実装例: identity/examples/saku.md を参照
 
-# 4. Web UIで起動（自動ループ（daemon）も同じプロセスで起動）
-python -m saku.ui
+# 6. Web UIで起動（自動ループ（daemon）も同じプロセスで起動）
+uv run python -m saku.ui
 # → ブラウザで http://127.0.0.1:8787 を開く
 
 # 代替:
-python -m saku.cli chat      # ターミナル対話
-python -m saku.cli daemon    # daemonのみ
-python -m saku.ui --no-daemon  # Web UIのみ（自動ループなし）
+uv run python -m saku.cli chat      # ターミナル対話
+uv run python -m saku.cli daemon    # daemonのみ
+uv run python -m saku.cli dream     # dreaming（記憶昇格）を手動実行
+uv run python -m saku.ui --no-daemon  # Web UIのみ（自動ループなし）
 ```
 
 詳細なセットアップは [docs/SETUP.md](docs/SETUP.md) を参照してください。
@@ -185,15 +193,36 @@ config.example.toml    # 設定例（公開）
 ## Web UI
 
 ```bash
-python -m saku.ui
+uv run python -m saku.ui
 ```
 
 ブラウザで **http://127.0.0.1:8787** を開くと会話できます。応答はSSEで
 トークン単位にストリーミング表示され、ツール実行もインライン表示されます。
 自動ループ（daemon）も既定で一緒に起動し、問いかけ（自発メッセージ）もUIに届きます。
 
-- UIのみ（自動ループなし）: `python -m saku.ui --no-daemon`
+- UIのみ（自動ループなし）: `uv run python -m saku.ui --no-daemon`
 - アドレス・ポートは `config.toml` の `[ui]` で変更可能
+
+---
+
+## MCP（Model Context Protocol）
+
+SAKUはMCP**クライアント**です。外部MCPサーバに接続し、`tools/list`でツールを
+動的発見し、通常の `[[ツール名]]` ブロックと同じ形式で呼び出せます。
+
+任意依存を一度インストールして（`uv pip install -e ".[mcp]"`）、config.tomlに登録します:
+
+```toml
+[mcp.servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allow"]
+
+[mcp.servers.homeassistant]
+url = "http://127.0.0.1:8766/mcp"
+```
+
+対応トランスポート: **Streamable HTTP**（`url`）と **stdio**（`command`）。
+設定済みツールはシステムプロンプトの「# MCP Tools」に自動反映されます。
 
 ---
 
