@@ -131,18 +131,24 @@ identity/
     saku.md            # 実装例（朔）
 
 saku/                  # コアパッケージ（Python、uv管理）
-  cli.py               # CLIエントリ: chat / daemon / ui
-  config.py            # 設定読み込み・バリデーション
+  cli.py               # CLIエントリ: chat / daemon / ui / setup / dream / mcp
+  config.py            # 設定読み込み・バリデーション（paths/llm/channels/mcp）
   llm.py               # LLMクライアント（per-call設定、マルチインスタンス）
-  agent_loop.py        # 共通エージェントループ（core/daemon/reflect/UI共用）
+  agent_loop.py        # 共通エージェントループ（core/daemon/reflect/UI/子AI共用）
   context.py           # コンテキスト予算・ツール結果pruning・コンパクション
-  transport.py         # ツール実行（[[TOOL]] ブロックのディスパッチ）
+  transport.py         # ツール実行（[[TOOL]] ブロック + MCPツール）
   thinking.py          # <think> 分離
   ui.py                # Web UI（依存ゼロ、SSEストリーミング）
+  dreaming.py          # journal/monologue → MEMORY.md（長期記憶へ昇格）
+  wiki.py              # 自己整理知識ベース（ノート・リンク・インデックス）
+  subagent.py          # 子エージェント: SPAWN_CHILD / DELEGATE
+  mcp.py               # MCPクライアント（外部サーバツール）
+  mcp_server.py        # MCPサーバ（SAKUの記憶を公開・Bearerトークン認証）
+  setup.py             # メモリ/vault構造の初期化
 
 src/                   # レガシーモジュール（saku/ へ移行中）
   saku_core.py         # エージェントエンジン（旧エントリポイント）
-  daemon.py            # バックグラウンドスケジューラ
+  daemon.py            # バックグラウンドスケジューラ（自律ティック・振り返り・dreaming）
   reflect.py           # 夜間振り返り
   system_tools/        # システムツール（朔は読取専用）
 
@@ -152,16 +158,20 @@ sample/                # Obsidianセットアップ用テンプレート
 
 memory/                # エージェントの記憶（プレーンなMarkdown）
   meta.md              # 自己モデル（.gitignore済み）
+  MEMORY.md            # 長期記憶（dreamingが書き込む）
   identity/soul.md     # コアアイデンティティ
   journal/             # 日記・行動ログ
   monologue/           # 独り言・内省
   principles/          # 学んだ教訓
+  wiki/                # 自己整理知識ベース（1概念1ノート）
   blog/                # ブログ下書き
   skills/              # 獲得したスキル定義
-  children/            # 子AIの定義
+  children/            # 子AIの定義（SPAWN_CHILDが作成）
   study/               # コード実験サンドボックス
   tools/               # 朔の自作ツール（実行時に作成される）
   state/               # 状態ファイル（saku.log, chat_state.json 等）
+  chat.md              # 非同期チャットIF
+  request_list.md      # Ownerへのお願いリスト（承認）
 
 config.toml            # ユーザー設定（.gitignore済み）
 config.example.toml    # 設定例（公開）
@@ -187,6 +197,20 @@ config.example.toml    # 設定例（公開）
 | 毎日 02:00 | 夜間振り返り: その日を総括し翌日を計画         | ✅ 実装済 |
 
 すべての間隔は `config.toml` の `[daemon]` セクションで変更できます。
+
+---
+
+## 自己成長と記憶
+
+SAKUは以下のメモリパイプラインで継続的に成長します:
+
+- **記録** — すべての会話・自律行動を `journal/` と `monologue/` に記録
+- **振り返り** — 毎晩その日を総括し、教訓を `principles/` に統合、自己モデル（`meta.md`）を更新
+- **Dreaming** — 1日1回、journal/monologueから重要な記憶を **`MEMORY.md`**（長期記憶）へ昇格。毎回プロンプトに反映
+- **Wiki** — `wiki/` に自己整理知識ベース（1概念1ノート・`[[リンク]]`・インデックス自動生成）
+- **子エージェント** — 役割別の子AIを `[[SPAWN_CHILD]]` / `[[DELEGATE]]` で生成・委譲
+
+成長はプロンプトに即時反映されます（`MEMORY.md`・直近の `principles/`・`skills/` を毎回再構築）。
 
 ---
 
@@ -285,19 +309,21 @@ input here
 | Phase | 名前 | 内容                                | 状態    |
 | ----- | ---- | ----------------------------------- | ------- |
 | 0     | 書く | ノート整理、ドキュメント執筆        | ✅ Done |
-| 1     | 知る | Webリサーチ、自律学習ループ         | ✅ Done |
+| 1     | 知る | Webリサーチ、自律学習ループ、dreaming | ✅ Done |
 | 2     | 守る | ホームネットワーク監視、異常検知    | planned |
-| 3     | 繋ぐ | 外部サービス連携、API統合           | planned |
-| 4     | 生む | 特化型子AI（Sub-Agent）の生成・管理 | planned |
+| 3     | 繋ぐ | 外部サービス連携（MCP）、API統合    | ✅ MCP実装済 |
+| 4     | 生む | 特化型子AI（Sub-Agent）の生成・管理 | 🚧 基盤 |
 
 ### Ideas / 今後の方向性
 
 - [x] Web UI（`chat.md` と併存。実装済み）
+- [x] MCP（クライアント + サーバ）
+- [x] 長期記憶（`MEMORY.md` + dreaming）と知識ベース（`wiki/`）
+- [x] 子エージェント基盤（`SPAWN_CHILD` / `DELEGATE`）
 - [ ] Memory store の抽象化レイヤー（SQLite、Vector DB）
 - [ ] ツールのコミュニティレジストリ
-- [ ] マルチエージェント対応（複数の genome インスタンス）
-- [ ] 長期記憶の圧縮・要約メカニズム
-- [ ] ポリグロットツール（任意言語）と MCP（クライアント+サーバ）
+- [ ] ポリグロットツール（任意言語）
+- [ ] Matter / Home Assistant を使ったホーム機器管理（MCP経由）
 
 ---
 
