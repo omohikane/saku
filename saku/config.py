@@ -152,7 +152,7 @@ def load_llm_instance(cfg: dict, name: str = "main") -> LlmConfig:
 # ── Path Policy (read/write permissions, single source of truth) ──
 DEFAULT_READ_ALLOWED = [
     "blog/", "journal/", "monologue/", "principles/", "skills/",
-    "identity/", "children/", "genome.md", "meta.md", "tools/",
+    "identity/", "children/", "genome.md", "meta.md", "MEMORY.md", "tools/",
     "src/", "state/", "study/", "chat.md", "request_list.md", "wiki/",
 ]
 DEFAULT_WRITE_ALLOWED = [

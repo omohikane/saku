@@ -53,7 +53,12 @@ def main(argv: list[str] | None = None) -> int:
 
         return setup_main(args[1:])
 
-    print("Usage: saku [chat|daemon|ui|setup|mcp]")
+    if cmd == "dream":
+        from saku.dreaming import main as dream_main
+
+        return dream_main(args[1:])
+
+    print("Usage: saku [chat|daemon|ui|setup|dream|mcp]")
     return 0
 
 

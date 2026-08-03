@@ -70,6 +70,7 @@ def switch_llm_profile(profile_name: str) -> str:
 
 MAX_GENOME_CHARS = 4000
 MAX_META_CHARS = 4000
+MAX_MEMORY_CHARS = 3000
 MAX_PRINCIPLES_CHARS = 5000
 MAX_SKILLS_CHARS = 3000
 MAX_HISTORY_MESSAGES = _cfg.get("agent", {}).get("max_history_messages", 30)
@@ -166,13 +167,16 @@ def reload_system_prompt_cache() -> None:
 
 
 def _build_volatile_sections() -> str:
-    """Volatile parts: current state (meta.md), recent principles/skills, and current time.
+    """Volatile parts: current state (meta.md), long-term memory (MEMORY.md),
+    recent principles/skills, and current time.
 
-    The growth-related parts (meta.md, principles/, skills/) are rebuilt on every call
-    so that SAKU's own growth is reflected in the prompt immediately.
+    The growth-related parts are rebuilt on every call so that SAKU's own growth
+    is reflected in the prompt immediately.
     """
     meta = load_file(MEMORY_ROOT / "meta.md")
     meta = compress(meta, MAX_META_CHARS)
+    memory = load_file(MEMORY_ROOT / "MEMORY.md")
+    memory = compress(memory, MAX_MEMORY_CHARS)
     principles = load_recent_dir(MEMORY_ROOT / "principles", MAX_PRINCIPLES_CHARS)
     skills = load_recent_dir(MEMORY_ROOT / "skills", MAX_SKILLS_CHARS)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -180,6 +184,8 @@ def _build_volatile_sections() -> str:
     sections = []
     if meta:
         sections.append(("# Current State", meta))
+    if memory:
+        sections.append(("# Long-term Memory", memory))
     if principles:
         sections.append(("# Learned Principles", principles))
     if skills:

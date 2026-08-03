@@ -65,6 +65,13 @@ def init_memory(memory_root: Path) -> None:
         else:
             meta.write_text("# SAKU Meta\n\n## 最近の出来事\n\n- 初期状態\n", encoding="utf-8")
 
+    # MEMORY.md (long-term memory, written by dreaming) — empty scaffold if absent
+    memory_long = memory_root / "MEMORY.md"
+    if not memory_long.exists():
+        from saku.dreaming import MEMORY_HEADER
+
+        memory_long.write_text(MEMORY_HEADER, encoding="utf-8")
+
     # soul.md (core identity) — keep any existing content
     soul = memory_root / "identity" / "soul.md"
     if not soul.exists():

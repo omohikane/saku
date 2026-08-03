@@ -31,6 +31,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from saku.agent_loop import run_agent_loop as _run_agent_loop
+from saku import dreaming
 
 import saku_core as agent
 import reflect
@@ -440,6 +441,26 @@ def check_and_run_midnight_reflection() -> None:
         except Exception as e:
             print(f"[!] Midnight reflection failed: {e}")
 
+# ── Dreaming: promote durable memories into MEMORY.md ─────────
+def check_and_run_dreaming() -> None:
+    """Run dreaming once per day (digests YESTERDAY's journal/monologue)."""
+    state = load_chat_state()
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    if state.get("last_dream_date", "") == today_str:
+        return
+
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    print(f"[*] Dreaming triggered for {yesterday}...")
+    try:
+        added = dreaming.run_dreaming(yesterday)
+        state["last_dream_date"] = today_str
+        save_chat_state(state)
+        if added:
+            print(f"[*] Dreaming promoted {len(added)} memory item(s) to MEMORY.md.")
+    except Exception as e:
+        print(f"[!] Dreaming failed: {e}")
+
 # ── Chat: archive ────────────────────────────────────────
 def check_chat_archive_if_needed(state: dict) -> None:
     turn_count = state.get("turn_count", 0)
@@ -605,6 +626,9 @@ def main():
 
             # 3. Check for midnight reflection (2:00 AM)
             check_and_run_midnight_reflection()
+
+            # 3b. Dreaming: promote durable memories into MEMORY.md (once per day)
+            check_and_run_dreaming()
 
             # 4. Check for autonomous chat initiation
             check_autonomous_initiation()
