@@ -37,6 +37,7 @@ CHAT_STATE_FILE = MEMORY_ROOT / "state/chat_state.json"
 REQUEST_FILE = MEMORY_ROOT / "request_list.md"
 LOG_DIR = MEMORY_ROOT / "state"
 UI_INBOX = MEMORY_ROOT / "state" / "ui_inbox.json"
+LOCK_FILE = MEMORY_ROOT / "state" / "daemon.lock"
 
 PROACTIVE_CHANNELS = agent.saku_config.load_channels_config(agent._cfg).proactive
 
@@ -579,7 +580,39 @@ def check_autonomous_tick() -> None:
     run_agent_loop(prompt, "定期自律アクション")
 
 # ── Main ─────────────────────────────────────────────────
+def _acquire_lock() -> bool:
+    """Prevent multiple daemon instances via a pidfile. Returns True if acquired."""
+    LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if LOCK_FILE.exists():
+        try:
+            pid = int(LOCK_FILE.read_text(encoding="utf-8").strip())
+            os.kill(pid, 0)  # raises ProcessLookupError if the pid is gone
+            return False  # another daemon is alive
+        except (ValueError, ProcessLookupError, PermissionError):
+            pass  # stale lock; proceed to take over
+    LOCK_FILE.write_text(str(os.getpid()), encoding="utf-8")
+    return True
+
+
+def _release_lock() -> None:
+    try:
+        if LOCK_FILE.exists() and LOCK_FILE.read_text(encoding="utf-8").strip() == str(os.getpid()):
+            LOCK_FILE.unlink()
+    except Exception:
+        pass
+
+
 def main():
+    if not _acquire_lock():
+        print("[!] Another daemon instance is already running. Exiting.")
+        return
+    try:
+        _daemon_run()
+    finally:
+        _release_lock()
+
+
+def _daemon_run():
     interval = int(os.environ.get("SAKU_INTERVAL_SEC", TICK_POLL_SECONDS))
     debug = os.environ.get("SAKU_DEBUG", "").lower() in ("1", "true", "yes")
 
