@@ -14,7 +14,7 @@ SAKU is not just another chat assistant that forgets everything between sessions
 - **Reflects** — reviews its experiences every night, deduces rules, and updates its plans for the next day.
 - **Researches** — searches the web for new information and runs Python code in a safe sandbox to test hypotheses.
 - **Reaches out** — initiates conversations with you instead of just waiting for user inputs.
-- **Grows** — updates its own self-model (`meta.md`) to adapt and expand its capabilities over time.
+- **Grows** — updates its self-model (`meta.md`), promotes durable memories into `MEMORY.md`, maintains its own `wiki/`, and spawns child agents to take on new roles.
 
 The "personality" of your agent is defined entirely by you in a file called `genome.md`.
 
@@ -113,18 +113,24 @@ identity/
     saku.md            # Reference implementation (anonymized)
 
 saku/                  # Core package (Python, uv-managed)
-  cli.py               # CLI entry: chat / daemon / ui
-  config.py            # Config loading + validation
+  cli.py               # CLI entry: chat / daemon / ui / setup / dream / mcp
+  config.py            # Config loading + validation (paths, llm, channels, mcp)
   llm.py               # LLM client (per-call settings, multi-instance)
-  agent_loop.py        # Shared agent loop (used by core/daemon/reflect/UI)
+  agent_loop.py        # Shared agent loop (used by core/daemon/reflect/UI/children)
   context.py           # Context budget, tool-result pruning, compaction
-  transport.py         # Tool dispatch ([[TOOL]] blocks)
+  transport.py         # Tool dispatch ([[TOOL]] blocks + MCP tools)
   thinking.py          # <think> separation
   ui.py                # Web UI (stdlib only, SSE streaming)
+  dreaming.py          # Promotes journal/monologue -> MEMORY.md (long-term memory)
+  wiki.py              # Self-organized knowledge base (notes, links, index)
+  subagent.py          # Child agents: spawn + delegate
+  mcp.py               # MCP client (external server tools)
+  mcp_server.py        # MCP server (expose SAKU memory, Bearer-token auth)
+  setup.py             # Initialize the memory/vault structure
 
 src/                   # Legacy modules (being migrated into saku/)
   saku_core.py         # Agent core engine (legacy entry point)
-  daemon.py            # Background scheduler (autonomous ticks, reflection)
+  daemon.py            # Background scheduler (autonomous ticks, reflection, dreaming)
   reflect.py           # Nightly reflection script (updates meta.md)
   system_tools/        # System-level tool plugins (read-only for SAKU)
 
@@ -134,16 +140,20 @@ sample/                # Template files to copy when setting up a vault
 
 memory/                # SAKU's memory store (plain Markdown files)
   meta.md              # Current self-model (ignored)
+  MEMORY.md            # Long-term memory (written by dreaming)
   identity/soul.md     # Core identity / soul definition
   journal/             # Conversation and activity logs
   monologue/           # Agent's inner thoughts
   principles/          # Accumulated rules and guidelines
+  wiki/                # Self-organized knowledge base (1 note per concept)
   blog/                # Work in progress (e.g. blog drafts)
   skills/              # Custom skill descriptions
-  children/            # Child agent definitions
+  children/            # Child agent definitions (written by SPAWN_CHILD)
   study/               # Sandboxed coding environment
   tools/               # SAKU's own user-created tools (created at runtime)
   state/               # Runtime state files (saku.log, chat_state.json, etc.)
+  chat.md              # Async chat interface
+  request_list.md      # Pending requests for the owner (approvals)
 
 config.toml            # User configurations (ignored)
 config.example.toml    # Configuration template (tracked)
@@ -169,6 +179,20 @@ The background daemon wakes up periodically to execute tasks:
 | **Every day at 02:00** | Nightly reflection: summarize today, plan tomorrow              | ✅ Implemented |
 
 All intervals are configurable inside the `[daemon]` section of `config.toml`.
+
+---
+
+## Self-Growth & Memory
+
+SAKU grows continuously through a memory pipeline:
+
+- **Recording** — every conversation and autonomous action is logged to `journal/` and `monologue/`.
+- **Reflection** — every night SAKU reviews the day, consolidates lessons into `principles/`, and updates its self-model (`meta.md`).
+- **Dreaming** — once a day, durable memories are promoted from journal/monologue into **`MEMORY.md`** (long-term memory), which is injected into the prompt each call.
+- **Wiki** — SAKU maintains its own knowledge base in `wiki/` (one note per concept, with `[[links]]` and a regenerated index), so what it learns stays organized and reusable.
+- **Child agents** — SAKU can spawn specialized sub-agents (`[[SPAWN_CHILD]]` / `[[DELEGATE]]`) for specific roles (research, monitoring, writing, ...).
+
+Growth is reflected in the prompt immediately: `MEMORY.md`, recent `principles/`, and `skills/` are rebuilt on every call.
 
 ---
 
@@ -268,19 +292,21 @@ SAKU can create and modify its own tools inside `memory/tools/` using `WRITE_FIL
 | Phase | Name      | Description                                      | Status  |
 | ----- | --------- | ------------------------------------------------ | ------- |
 | **0** | Write     | Organized notes, draft articles                  | ✅ Done |
-| **1** | Learn     | Web research, autonomous study loops             | ✅ Done |
+| **1** | Learn     | Web research, autonomous study loops, dreaming   | ✅ Done |
 | **2** | Protect   | Local home network monitoring, anomaly detection | Planned |
-| **3** | Integrate | External integrations, custom APIs               | Planned |
-| **4** | Spawn     | Managing child agents (Sub-Agents)               | Planned |
+| **3** | Integrate | External integrations (MCP), custom APIs         | ✅ MCP done |
+| **4** | Spawn     | Managing child agents (Sub-Agents)               | 🚧 Foundation |
 
 ### Future Ideas
 
-- [x] Web UI for conversation (implemented alongside `chat.md`)
+- [x] Web UI for conversation (alongside `chat.md`)
+- [x] MCP (client + server)
+- [x] Long-term memory (`MEMORY.md` + dreaming) and knowledge base (`wiki/`)
+- [x] Child-agent foundation (`SPAWN_CHILD` / `DELEGATE`)
 - [ ] Memory store abstraction layer (SQLite, Vector DB)
 - [ ] Community tool registry / marketplace
-- [ ] Multi-agent networks (child agents)
-- [ ] Long-term memory compression mechanisms
-- [ ] Polyglot tool plugins (any language) and MCP (client + server)
+- [ ] Polyglot tool plugins (any language)
+- [ ] Home device management (Matter / Home Assistant) via MCP
 
 ---
 
