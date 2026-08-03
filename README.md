@@ -192,6 +192,12 @@ SAKU grows continuously through a memory pipeline:
 
 Growth is reflected in the prompt immediately: `MEMORY.md`, recent `principles/`, and `skills/` are rebuilt on every call.
 
+> **Honest framing**: SAKU evolves its **persistent state, tools, knowledge and
+> behaviour** — not the underlying model weights. The LLM itself is unchanged;
+> what grows is the memory, skills, wiki, and habits that shape its responses.
+> Growth is measurable: see [`evals/longitudinal/`](evals/longitudinal/) for the
+> snapshot/compare tooling.
+
 ---
 
 ## Web UI
