@@ -121,10 +121,15 @@ def _insert_after_heading(content: str, heading: str, entry: str) -> str:
 
 
 def append_items(memory_path: Path, items: list[tuple[str, str]], date: str) -> list[str]:
-    """Append items to MEMORY.md under their section. Returns newly added contents."""
-    if not memory_path.exists():
+    """Append items to MEMORY.md under their section. Returns newly added contents.
+
+    Recovers a missing, empty, or corrupted MEMORY.md by re-initializing the header.
+    """
+    if not memory_path.exists() or memory_path.stat().st_size == 0:
         memory_path.write_text(MEMORY_HEADER, encoding="utf-8")
     content = memory_path.read_text(encoding="utf-8")
+    if "# MEMORY" not in content:
+        content = MEMORY_HEADER + "\n" + content.lstrip()
 
     added = []
     for category, text in items:
