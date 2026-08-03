@@ -76,7 +76,7 @@ root = "memory"
 #                 "identity/", "children/", "genome.md", "meta.md", "MEMORY.md", "tools/",
 #                 "src/", "state/", "study/", "chat.md", "request_list.md", "wiki/"]
 # write_allowed = ["blog/", "monologue/", "principles/", "skills/", "tools/",
-#                  "chat.md", "study/", "journal/", "request_list.md", "wiki/"]
+#                  "chat.md", "study/", "journal/", "request_list.md", "wiki/", "children/"]
 # write_denied_exact = ["meta.md"]          # WRITE_FILE で上書き不可
 # delete_denied_exact = ["meta.md", "chat.md", "request_list.md", "genome.md", "soul.md"]
 
