@@ -2,7 +2,7 @@
 
 English | [日本語 (Japanese)](README.ja.md)
 
-> A local LLM-powered autonomous agent framework that grows through daily reflection, web research, and personal writing.
+> A local, private, self-growing personal AI that lives in your home — a companion that manages your devices (NOC/SOC, smart home) and grows with you every day.
 
 ---
 
@@ -54,21 +54,32 @@ llama-server -m ~/models/your-model.gguf --host 127.0.0.1 --port 8080
 git clone https://github.com/omohikane/saku
 cd saku
 
-# 2. Setup configuration file
+# 2. Create a venv and install (Python 3.11+ with uv recommended)
+uv venv
+uv pip install -e ".[mcp]"   # mcp is optional; omit if you don't use MCP servers
+
+# 3. Setup configuration file
 cp config.example.toml config.toml
 # Edit config.toml to adjust api_url/keys/model names if necessary
 
-# 3. Initialize personality and self-model
-cp identity/genome.template.md identity/genome.md
+# 4. Initialize the memory/vault structure
+uv run python -m saku.cli setup
+
+# 5. Initialize personality and self-model
+cp identity/genome.template.md memory/identity/genome.md
 cp memory/meta.template.md memory/meta.md
-# Edit placeholders inside identity/genome.md (e.g., name, values)
+# Edit placeholders inside genome.md (e.g., name, values)
 # Check out identity/examples/saku.md for a concrete example
 
-# 4. Start Interactive Terminal Mode
-cd src && python saku_core.py
+# 6. Start the Web UI (starts the autonomous daemon loop in the same process)
+uv run python -m saku.ui
+# → open http://127.0.0.1:8787 in your browser
 
-# 5. Or run SAKU as a background daemon (Autonomous Mode)
-cd src && nohup python daemon.py > ../saku.log 2>&1 &
+# Alternatives:
+uv run python -m saku.cli chat     # terminal chat
+uv run python -m saku.cli daemon   # background daemon only
+uv run python -m saku.cli dream    # run a dreaming cycle manually
+uv run python -m saku.ui --no-daemon  # Web UI without the autonomous loop
 ```
 
 For a detailed setup guide, please refer to [docs/SETUP.md](docs/SETUP.md).
@@ -77,15 +88,18 @@ For a detailed setup guide, please refer to [docs/SETUP.md](docs/SETUP.md).
 
 ## Defining Your Agent
 
-The core of SAKU is `identity/genome.md`. This is where you write your agent's personality.
+The core of SAKU is `genome.md` — the user-authored personality. The master copy
+lives in your vault: `memory/identity/genome.md` (or `vault_root/identity/genome.md`
+for the Obsidian layout). The repo's `identity/genome.md` is only a sample/fallback
+for fresh clones.
 
-1. **Start from the template**:
+1. **Start from the template** (if your vault has no genome yet):
    ```bash
-   cp identity/genome.template.md identity/genome.md
+   cp identity/genome.template.md memory/identity/genome.md
    ```
 2. **Define the basics**: Fill out the `{{AGENT_NAME}}`, `{{OWNER_NAME}}`, core values, forbidden phrases, and communication styles.
 3. **Reference the example**: An example definition for the reference agent "Saku" is available at [identity/examples/saku.md](identity/examples/saku.md).
-4. **Keep it private**: `genome.md` is included in `.gitignore` by default. Your agent's core values are yours alone.
+4. **Keep it private**: `genome.md` is excluded from git by default. Your agent's core values are yours alone.
 
 ---
 
@@ -98,9 +112,19 @@ identity/
   examples/
     saku.md            # Reference implementation (anonymized)
 
-src/
-  saku_core.py         # Agent core engine (LLM calls, tool dispatcher, prompt builder)
-  daemon.py            # Background process (polling, autonomous ticks, nightly summaries)
+saku/                  # Core package (Python, uv-managed)
+  cli.py               # CLI entry: chat / daemon / ui
+  config.py            # Config loading + validation
+  llm.py               # LLM client (per-call settings, multi-instance)
+  agent_loop.py        # Shared agent loop (used by core/daemon/reflect/UI)
+  context.py           # Context budget, tool-result pruning, compaction
+  transport.py         # Tool dispatch ([[TOOL]] blocks)
+  thinking.py          # <think> separation
+  ui.py                # Web UI (stdlib only, SSE streaming)
+
+src/                   # Legacy modules (being migrated into saku/)
+  saku_core.py         # Agent core engine (legacy entry point)
+  daemon.py            # Background scheduler (autonomous ticks, reflection)
   reflect.py           # Nightly reflection script (updates meta.md)
   system_tools/        # System-level tool plugins (read-only for SAKU)
 
@@ -125,6 +149,9 @@ config.toml            # User configurations (ignored)
 config.example.toml    # Configuration template (tracked)
 ```
 
+> `memory/` can point to any directory — including an Obsidian vault — via the
+> `[memory] root` setting in `config.toml` (absolute or relative path).
+
 > **Note on Memory Store**: SAKU uses plain Markdown files for storage. Obsidian is used as a reference implementation, but it is not required. Any folder (synced, local, or cloud) can act as the memory root. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
@@ -145,9 +172,48 @@ All intervals are configurable inside the `[daemon]` section of `config.toml`.
 
 ---
 
+## Web UI
+
+Start the Web UI (also starts the autonomous daemon loop by default):
+
+```bash
+uv run python -m saku.ui
+```
+
+Open <http://127.0.0.1:8787> in your browser to chat with SAKU. Responses stream
+token by token over SSE, and tool executions are shown inline. Autonomous
+proactive messages (e.g., check-ins) are also delivered to the UI.
+
+- UI only, no daemon: `uv run python -m saku.ui --no-daemon`
+- Address/port can be configured under `[ui]` in `config.toml`.
+
+---
+
+## MCP (Model Context Protocol)
+
+SAKU is an MCP **client**: it connects to external MCP servers, discovers their
+tools via `tools/list`, and can call them with the same `[[TOOL]]` blocks.
+
+Install the optional dependency once (`uv pip install -e ".[mcp]"`), then register
+servers in `config.toml`:
+
+```toml
+[mcp.servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allow"]
+
+[mcp.servers.homeassistant]
+url = "http://127.0.0.1:8766/mcp"
+```
+
+Supported transports: **Streamable HTTP** (`url`) and **stdio** (`command`).
+Configured tools are listed in the system prompt under "# MCP Tools".
+
+---
+
 ## Conversation Interface (`chat.md`)
 
-You can talk to SAKU using a simple Markdown file:
+You can also talk to SAKU using a simple Markdown file:
 
 1. Open `memory/chat.md` in any editor or Obsidian.
 2. Write your message, end it with a `>` trigger, and save.
@@ -158,6 +224,9 @@ How is your day going? >
 ```
 
 The `>` acts as a send trigger to prevent accidental replies while you are typing (due to editor auto-save features).
+
+`chat.md` is kept as a legacy channel alongside the Web UI and can be disabled
+later via the `[channels]` setting.
 
 ---
 
@@ -206,11 +275,12 @@ SAKU can create and modify its own tools inside `memory/tools/` using `WRITE_FIL
 
 ### Future Ideas
 
+- [x] Web UI for conversation (implemented alongside `chat.md`)
 - [ ] Memory store abstraction layer (SQLite, Vector DB)
-- [ ] Web UI for conversation instead of `chat.md`
 - [ ] Community tool registry / marketplace
-- [ ] Multi-agent networks
+- [ ] Multi-agent networks (child agents)
 - [ ] Long-term memory compression mechanisms
+- [ ] Polyglot tool plugins (any language) and MCP (client + server)
 
 ---
 
@@ -228,6 +298,7 @@ SAKU can create and modify its own tools inside `memory/tools/` using `WRITE_FIL
 _Note: Detailed documentation files are currently written in Japanese. Please use translation tools if necessary._
 
 - [docs/SETUP.md](docs/SETUP.md) — Detailed setup instructions
+- [docs/DEPLOY.md](docs/DEPLOY.md) — Deployment (systemd, dedicated VM)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — System architecture & data flow
 - [docs/TOOLS.md](docs/TOOLS.md) — Tool expansion guide
 - [docs/DAEMON.md](docs/DAEMON.md) — Daemon lifecycle & events

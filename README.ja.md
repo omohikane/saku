@@ -6,7 +6,7 @@
 
 朔（さく）— 新月。何もない空から始まり、満ちて、欠けて、また始まる。
 
-ローカルLLMで動く、自律成長型エージェントフレームワーク。
+> 家庭に住む、自律成長するパートナーAI。ローカルLLMで完結し、個人情報はクラウドに送らない。毎日育ち、家庭の機器管理も担う。
 
 ---
 
@@ -55,21 +55,32 @@ llama-server -m ~/models/your-model.gguf --host 127.0.0.1 --port 8080
 git clone https://github.com/omohikane/saku
 cd saku
 
-# 2. 設定ファイル
+# 2. venvを作成してインストール（Python 3.11+、uv推奨）
+uv venv
+uv pip install -e ".[mcp]"   # mcpは任意。使わないなら不要
+
+# 3. 設定ファイル
 cp config.example.toml config.toml
 # 必要に応じて [llm] api_url を編集
 
-# 3. エージェントの人格定義
-cp identity/genome.template.md identity/genome.md
+# 4. メモリ/vault構造の初期化
+uv run python -m saku.cli setup
+
+# 5. エージェントの人格定義
+cp identity/genome.template.md memory/identity/genome.md
 cp memory/meta.template.md memory/meta.md
-# identity/genome.md の {{...}} プレースホルダを編集
+# genome.md の {{...}} プレースホルダを編集
 # 実装例: identity/examples/saku.md を参照
 
-# 4. インタラクティブモードで起動
-cd src && python saku_core.py
+# 6. Web UIで起動（自動ループ（daemon）も同じプロセスで起動）
+uv run python -m saku.ui
+# → ブラウザで http://127.0.0.1:8787 を開く
 
-# 5. バックグラウンドデーモンとして起動（自律モード）
-cd src && nohup python daemon.py > ../saku.log 2>&1 &
+# 代替:
+uv run python -m saku.cli chat      # ターミナル対話
+uv run python -m saku.cli daemon    # daemonのみ
+uv run python -m saku.cli dream     # dreaming（記憶昇格）を手動実行
+uv run python -m saku.ui --no-daemon  # Web UIのみ（自動ループなし）
 ```
 
 詳細なセットアップは [docs/SETUP.md](docs/SETUP.md) を参照してください。
@@ -78,12 +89,15 @@ cd src && nohup python daemon.py > ../saku.log 2>&1 &
 
 ## Defining Your Agent
 
-SAKUの本体は `identity/genome.md`。ここにエージェントの人格を書きます。
+SAKUの本体は `genome.md`。ここにエージェントの人格を書きます。
+**マスターはvault側**（`memory/identity/genome.md`、またはObsidian構成では
+`vault_root/identity/genome.md`）に置きます。リポジトリの `identity/genome.md` は
+新規クローン用のサンプル/フォールバックです。
 
 ### 1. テンプレートから開始
 
 ```bash
-cp identity/genome.template.md identity/genome.md
+cp identity/genome.template.md memory/identity/genome.md
 ```
 
 `{{AGENT_NAME}}` `{{OWNER_NAME}}` などのプレースホルダを書き換えていきます。
@@ -116,10 +130,20 @@ identity/
   examples/
     saku.md            # 実装例（朔）
 
-src/
-  saku_core.py         # エージェントエンジン（LLM呼び出し・ツール実行・プロンプト構築）
-  daemon.py            # バックグラウンドプロセス（ポーリング・自律ティック・夜間振り返り）
-  reflect.py           # 夜間の日次サマリーと自己モデル更新
+saku/                  # コアパッケージ（Python、uv管理）
+  cli.py               # CLIエントリ: chat / daemon / ui
+  config.py            # 設定読み込み・バリデーション
+  llm.py               # LLMクライアント（per-call設定、マルチインスタンス）
+  agent_loop.py        # 共通エージェントループ（core/daemon/reflect/UI共用）
+  context.py           # コンテキスト予算・ツール結果pruning・コンパクション
+  transport.py         # ツール実行（[[TOOL]] ブロックのディスパッチ）
+  thinking.py          # <think> 分離
+  ui.py                # Web UI（依存ゼロ、SSEストリーミング）
+
+src/                   # レガシーモジュール（saku/ へ移行中）
+  saku_core.py         # エージェントエンジン（旧エントリポイント）
+  daemon.py            # バックグラウンドスケジューラ
+  reflect.py           # 夜間振り返り
   system_tools/        # システムツール（朔は読取専用）
 
 sample/                # Obsidianセットアップ用テンプレート
@@ -143,6 +167,9 @@ config.toml            # ユーザー設定（.gitignore済み）
 config.example.toml    # 設定例（公開）
 ```
 
+> `memory/` は `config.toml` の `[memory] root` で任意のディレクトリ（Obsidian
+> vault を含む）を指せます（絶対パス・相対パス対応）。
+
 > **メモリストアについて**: SAKUはプレーンなMarkdownファイルを記憶として使います。
 > Obsidianはその一例。`memory/` に相当する場所であれば、通常のディレクトリでも
 > クラウド同期フォルダでも動作します。詳細は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
@@ -163,6 +190,42 @@ config.example.toml    # 設定例（公開）
 
 ---
 
+## Web UI
+
+```bash
+uv run python -m saku.ui
+```
+
+ブラウザで **http://127.0.0.1:8787** を開くと会話できます。応答はSSEで
+トークン単位にストリーミング表示され、ツール実行もインライン表示されます。
+自動ループ（daemon）も既定で一緒に起動し、問いかけ（自発メッセージ）もUIに届きます。
+
+- UIのみ（自動ループなし）: `uv run python -m saku.ui --no-daemon`
+- アドレス・ポートは `config.toml` の `[ui]` で変更可能
+
+---
+
+## MCP（Model Context Protocol）
+
+SAKUはMCP**クライアント**です。外部MCPサーバに接続し、`tools/list`でツールを
+動的発見し、通常の `[[ツール名]]` ブロックと同じ形式で呼び出せます。
+
+任意依存を一度インストールして（`uv pip install -e ".[mcp]"`）、config.tomlに登録します:
+
+```toml
+[mcp.servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allow"]
+
+[mcp.servers.homeassistant]
+url = "http://127.0.0.1:8766/mcp"
+```
+
+対応トランスポート: **Streamable HTTP**（`url`）と **stdio**（`command`）。
+設定済みツールはシステムプロンプトの「# MCP Tools」に自動反映されます。
+
+---
+
 ## Conversation Interface（`chat.md`）
 
 ターミナルではなく、Markdownファイルで会話できます：
@@ -176,6 +239,9 @@ config.example.toml    # 設定例（公開）
 ```
 
 `>` が送信トリガーです。自動保存による誤送信を防ぎます。
+
+`chat.md` はWeb UIと並ぶレガシーチャネルとして維持され、将来 `[channels]`
+設定で無効化できます。
 
 ---
 
@@ -226,11 +292,12 @@ input here
 
 ### Ideas / 今後の方向性
 
+- [x] Web UI（`chat.md` と併存。実装済み）
 - [ ] Memory store の抽象化レイヤー（SQLite、Vector DB）
-- [ ] `chat.md` の代わりになるWeb UI
 - [ ] ツールのコミュニティレジストリ
 - [ ] マルチエージェント対応（複数の genome インスタンス）
 - [ ] 長期記憶の圧縮・要約メカニズム
+- [ ] ポリグロットツール（任意言語）と MCP（クライアント+サーバ）
 
 ---
 
@@ -246,6 +313,7 @@ input here
 ## Documentation
 
 - [docs/SETUP.md](docs/SETUP.md) — 詳細なセットアップ手順
+- [docs/DEPLOY.md](docs/DEPLOY.md) — デプロイ（systemd・専用VM）
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 構成・データフロー
 - [docs/TOOLS.md](docs/TOOLS.md) — ツール拡張ガイド
 - [docs/DAEMON.md](docs/DAEMON.md) — daemon動作の詳細

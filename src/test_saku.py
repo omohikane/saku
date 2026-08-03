@@ -9,6 +9,9 @@ from pathlib import Path
 
 CODE_ROOT = Path(__file__).parent
 sys.path.append(str(CODE_ROOT))
+_REPO_ROOT = CODE_ROOT.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 import saku_core as agent
 from system_tools import read_file, list_dir, write_file, search_notes, append_file, delete_file, move_file, grep_code
@@ -104,13 +107,10 @@ def run_tests():
         assert "[ERROR]" in res_missing, f"Expected ERROR, got: {res_missing}"
         print("    -> PASS")
 
-        # 5d. Append_file without heading still appends to end
-        print("[5d] Test append_file without heading appends to end:")
-        meta_path.write_text(meta_content, encoding="utf-8")
+        # 5d. Append_file without heading on meta.md returns error
+        print("[5d] Test append_file without heading on meta.md returns error:")
         res_nohead = append_file.run(SAKU_ROOT, "meta.md", "- 末尾に追加")
-        assert "[OK]" in res_nohead, f"Expected OK, got: {res_nohead}"
-        final_content = meta_path.read_text(encoding="utf-8")
-        assert final_content.rstrip().endswith("- 末尾に追加"), f"Not appended to end"
+        assert "[ERROR]" in res_nohead and "heading" in res_nohead, f"Expected ERROR for heading-less meta.md, got: {res_nohead}"
         print("    -> PASS")
 
         # 6. Write file to blog/ (was drafts/)

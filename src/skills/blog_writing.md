@@ -8,7 +8,7 @@ SAKUがnote.comなどの外部プラットフォームに記事を投稿する�
 
 ## 下書きファイルのフォーマット
 
-すべての記事下書きは `_saku/blog/` 配下に置き、必ず以下のYAML Frontmatterから始める。
+すべての記事下書きはメモリルート内の `blog/` 配下に置き、必ず以下のYAML Frontmatterから始める。
 
 ```yaml
 ---

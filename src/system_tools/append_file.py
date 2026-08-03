@@ -1,27 +1,18 @@
-"""Append content to a file within _saku/ (restricted paths only).
+"""Append content to a file within the memory root (restricted paths only, policy from config).
 
 Supports optional heading parameter: when specified, content is inserted
-directly after the matching ## heading line, before the next ## heading.
+directly after the matching ## heading line, before the next ## or ### heading.
 """
 
 import re
 from pathlib import Path
 
-ALLOWED_PREFIXES = [
-    "blog/",
-    "monologue/",
-    "principles/",
-    "skills/",
-    "study/",
-    "tools/",
-    "meta.md",
-    "chat.md",
-    "request_list.md",
-    "journal/",
-]
+from saku.config import get_path_policy
 
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
+    policy = get_path_policy()
+
     if not path:
         return "[ERROR] path is empty"
     if not body.strip():
@@ -29,7 +20,11 @@ def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
 
     heading = kwargs.get("heading", "").strip()
 
-    if not any(path.startswith(p) for p in ALLOWED_PREFIXES):
+    if path == "meta.md" and not heading:
+        return "[ERROR] meta.md requires heading= parameter to specify which ## section to append to"
+
+    # meta.md is append-only (not in write_allowed, but APPEND_FILE may target it)
+    if not (policy.is_write_allowed(path) or path == "meta.md"):
         return f"[DENY] cannot append to: {path}"
 
     target = (base / path).resolve()
@@ -46,7 +41,8 @@ def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
         m = pattern.search(content)
         if m:
             insert_pos = m.end()
-            next_heading = re.search(r"^##\s+", content[insert_pos:], re.MULTILINE)
+            # Look for next ## or ### heading after the matched section
+            next_heading = re.search(r"^(##|###)\s+", content[insert_pos:], re.MULTILINE)
             if next_heading:
                 insert_pos += next_heading.start()
             else:

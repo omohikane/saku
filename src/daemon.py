@@ -13,6 +13,8 @@ Runs in the background, waking up periodically to:
 """
 
 import json
+import logging
+import logging.handlers
 import os
 import re
 import sys
@@ -22,6 +24,14 @@ from pathlib import Path
 
 CODE_ROOT = Path(__file__).parent
 sys.path.append(str(CODE_ROOT))
+
+# Ensure repo root (parent of src/) is on path so the `saku` package is importable.
+_REPO_ROOT = CODE_ROOT.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from saku.agent_loop import run_agent_loop as _run_agent_loop
+from saku import dreaming
 
 import saku_core as agent
 import reflect
@@ -34,7 +44,10 @@ CHAT_FILE = MEMORY_ROOT / "chat.md"
 STATE_FILE = MEMORY_ROOT / "state/processed_inbox.json"
 CHAT_STATE_FILE = MEMORY_ROOT / "state/chat_state.json"
 REQUEST_FILE = MEMORY_ROOT / "request_list.md"
-LOG_FILE = MEMORY_ROOT / "state/saku.log"
+LOG_DIR = MEMORY_ROOT / "state"
+UI_INBOX = MEMORY_ROOT / "state" / "ui_inbox.json"
+
+PROACTIVE_CHANNELS = agent.saku_config.load_channels_config(agent._cfg).proactive
 
 CHAT_POLL_SECONDS = _dcfg.get("chat_poll_seconds", 5)
 INBOX_POLL_SECONDS = _dcfg.get("inbox_poll_seconds", 3600)
@@ -43,20 +56,38 @@ TICK_POLL_SECONDS = _dcfg.get("tick_interval_seconds", 1800)
 ARCHIVE_AFTER_INACTIVE_SECONDS = _dcfg.get("archive_after_inactive_seconds", 1800)
 ARCHIVE_AFTER_TURNS = _dcfg.get("archive_after_turns", 10)
 AUTO_INITIATE_COOLDOWN_SECONDS = _dcfg.get("auto_initiate_cooldown_seconds", 28800)
+INITIATE_RETRY_SECONDS = _dcfg.get("initiate_retry_seconds", 1800)  # Retry interval after failures (prevents spam)
 
-# ── Debug Logger ──────────────────────────────────────
-def log_debug(level: str, context: str, message: str) -> None:
-    """Append a structured log entry to saku.log for easy post-mortem inspection."""
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if len(message) > 500:
-        message = message[:500] + " [...truncated]"
-    line = f"[{now}] [{level}] [{context}] {message}\n"
-    try:
-        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with LOG_FILE.open("a", encoding="utf-8") as f:
-            f.write(line)
-    except Exception as e:
-        print(f"[!] log_debug write error: {e}")
+# ── Logging Setup ─────────────────────────────────────
+def _setup_logging():
+    log_dir = LOG_DIR
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    main_handler = logging.handlers.RotatingFileHandler(
+        log_dir / "saku.log", maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8"
+    )
+    main_handler.setLevel(logging.INFO)
+    main_handler.setFormatter(logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    ))
+
+    error_handler = logging.handlers.RotatingFileHandler(
+        log_dir / "saku-error.log", maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8"
+    )
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    ))
+
+    logger = logging.getLogger("saku")
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(main_handler)
+    logger.addHandler(error_handler)
+    return logger
+
+logger = _setup_logging()
 
 CHAT_RESET_HEADER = """# SAKU Chat — 書面対話ノート
 
@@ -181,78 +212,29 @@ def run_agent_loop(prompt: str, log_action_name: str, extra_history: list[dict] 
         history.extend(extra_history)
     history.append({"role": "user", "content": prompt})
 
-    log_debug("INFO", log_action_name, "agent loop started")
+    logger.info("[%s] agent loop started", log_action_name)
 
-    max_turns = 5
-    turn = 0
-    current_visible = []
-    current_thinking = []
-    last_raw = ""
-    action_taken = False
+    def on_tool_result(tool_output: str) -> None:
+        logger.debug("[TOOL] [%s] %s", log_action_name, tool_output[:500])
+        print(f"\n[tool] {tool_output}")
 
-    while turn < max_turns:
-        # --- Context Protection / Pruning ---
-        # Safe character limit (~12000 chars is roughly 4000-6000 tokens, well below 8192 context limit)
-        char_limit = 12000
-        total_chars = sum(len(m.get("content", "")) for m in history)
-        
-        if total_chars > char_limit and len(history) > 5:
-            print(f"[*] Context size is large ({total_chars} chars). Pruning old history...")
-            log_debug("WARN", log_action_name, f"context pruned: {total_chars} chars -> keeping system + last 4 msgs")
-            # Keep system prompt (index 0) and the last 4 messages (which contain current tools and logic)
-            # and discard the middle (older chat logs)
-            pruned_history = [history[0]] + history[-4:]
-            history = pruned_history
-            new_total = sum(len(m.get("content", "")) for m in history)
-            print(f"[*] Pruned context size down to {new_total} chars.")
+    result = _run_agent_loop(
+        history,
+        agent._current_llm,
+        agent.context_config,
+        agent.MEMORY_ROOT,
+        agent.CODE_ROOT,
+        max_turns=5,
+        on_tool_result=on_tool_result,
+        no_action_markers=["[NO_ACTION]", "[INBOX_PROCESSED]"],
+        log=lambda msg: logger.warning("[%s] %s", log_action_name, msg),
+    )
 
-        raw_reply = agent.chat_stream(history)
-        last_raw = raw_reply
+    if result.action_taken and result.last_raw and not result.last_raw.startswith("[ERROR]"):
+        agent.save_autonomous_log(log_action_name, result.visible, thinking=result.thinking)
+        return True, result.visible
 
-        if raw_reply.startswith("[ERROR]"):
-            print(f"[!] LLM Error: {raw_reply}")
-            log_debug("ERROR", log_action_name, f"LLM error: {raw_reply[:300]}")
-            break
-
-        thinking, visible = agent.split_thinking(raw_reply)
-
-        if "[NO_ACTION]" not in raw_reply and "[INBOX_PROCESSED]" not in raw_reply:
-            action_taken = True
-
-        if visible:
-            current_visible.append(visible)
-        if thinking:
-            current_thinking.append(thinking)
-
-        history.append({"role": "assistant", "content": visible})
-
-        tool_results = agent.exec_tools(raw_reply)
-        if tool_results:
-            action_taken = True
-            
-            # Truncate overly long tool outputs to prevent context pollution
-            processed_results = []
-            for tr in tool_results:
-                log_debug("TOOL", log_action_name, tr)
-                if len(tr) > 2000:
-                    tr = tr[:2000] + "\n\n[... tool output truncated to save context ...]"
-                processed_results.append(tr)
-                
-            tool_output = "\n".join(processed_results)
-            print(f"\n[tool] {tool_output}")
-            history.append({"role": "user", "content": f"[system] tool results:\n{tool_output}"})
-        else:
-            break
-        turn += 1
-
-    merged_visible = "\n\n".join(current_visible).strip()
-    merged_thinking = "\n\n".join(current_thinking).strip()
-
-    if action_taken and last_raw and not last_raw.startswith("[ERROR]"):
-        agent.save_autonomous_log(log_action_name, merged_visible, thinking=merged_thinking)
-        return True, merged_visible
-
-    return False, merged_visible
+    return False, result.visible
 
 # ── Chat: reply ──────────────────────────────────────────
 def check_chat_and_reply() -> None:
@@ -345,7 +327,12 @@ def check_autonomous_initiation() -> None:
 
     state = load_chat_state()
     now = time.time()
-    
+
+    # Do not re-fire if not enough time has passed since the last attempt (prevents spam on LLM failure)
+    last_attempt = state.get("last_initiate_attempt", 0)
+    if now - last_attempt < INITIATE_RETRY_SECONDS:
+        return
+
     # Check cooldown
     last_saku = state.get("last_saku_msg_time", 0)
     last_owner = state.get("last_owner_msg_time", 0)
@@ -362,6 +349,10 @@ def check_autonomous_initiation() -> None:
     if not chat_history and state.get("turn_count", 0) == 0:
         # Avoid initiating immediately on a completely empty chat
         return
+
+    # Record the attempt time before running (retry after an interval even on failure)
+    state["last_initiate_attempt"] = now
+    save_chat_state(state)
 
     print("[*] SAKU is autonomously initiating a conversation thread...")
     saku_self_initiate("定例チェックイン")
@@ -396,12 +387,25 @@ def saku_self_initiate(reason: str) -> None:
         f.write(reply_block)
         
     print(f"[*] SAKU initiated chat.md message: {reason}")
+
+    # Also deliver to the Web UI (when "webui" is included in [channels] proactive)
+    if "webui" in PROACTIVE_CHANNELS:
+        notify_webui(saku_msg)
     
     # Save the updated content state so daemon doesn't loop
     state["last_mtime"] = CHAT_FILE.stat().st_mtime
     state["last_content"] = CHAT_FILE.read_text(encoding="utf-8")
     state["last_saku_msg_time"] = time.time()
     save_chat_state(state)
+
+
+def notify_webui(message: str) -> None:
+    """Deliver autonomous messages/alerts to the Web UI (proactive notification)."""
+    UI_INBOX.parent.mkdir(parents=True, exist_ok=True)
+    UI_INBOX.write_text(
+        json.dumps({"message": message}, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 # ── Midnight Reflection (2:00 AM) ──────────────────────────
 def check_and_run_midnight_reflection() -> None:
@@ -436,6 +440,26 @@ def check_and_run_midnight_reflection() -> None:
             
         except Exception as e:
             print(f"[!] Midnight reflection failed: {e}")
+
+# ── Dreaming: promote durable memories into MEMORY.md ─────────
+def check_and_run_dreaming() -> None:
+    """Run dreaming once per day (digests YESTERDAY's journal/monologue)."""
+    state = load_chat_state()
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    if state.get("last_dream_date", "") == today_str:
+        return
+
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    print(f"[*] Dreaming triggered for {yesterday}...")
+    try:
+        added = dreaming.run_dreaming(yesterday)
+        state["last_dream_date"] = today_str
+        save_chat_state(state)
+        if added:
+            print(f"[*] Dreaming promoted {len(added)} memory item(s) to MEMORY.md.")
+    except Exception as e:
+        print(f"[!] Dreaming failed: {e}")
 
 # ── Chat: archive ────────────────────────────────────────
 def check_chat_archive_if_needed(state: dict) -> None:
@@ -505,10 +529,10 @@ def save_processed_state(state: dict) -> None:
     STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 def check_inbox_and_process() -> None:
-    # Inbox is expected one level above the memory root (Obsidian vault usage)
-    # Falls back gracefully if not present.
+    # The inbox location is configurable via [memory] inbox_dir (the layout varies
+    # per person). Falls back gracefully if not present.
     vault_root = MEMORY_ROOT.parent
-    inbox_dir = vault_root / "00_Inbox"
+    inbox_dir = agent.saku_config.resolve_inbox_dir(agent._cfg, MEMORY_ROOT, agent._config_base)
 
     if not inbox_dir.is_dir():
         return
@@ -602,6 +626,9 @@ def main():
 
             # 3. Check for midnight reflection (2:00 AM)
             check_and_run_midnight_reflection()
+
+            # 3b. Dreaming: promote durable memories into MEMORY.md (once per day)
+            check_and_run_dreaming()
 
             # 4. Check for autonomous chat initiation
             check_autonomous_initiation()

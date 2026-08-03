@@ -1,30 +1,14 @@
-"""Read a file within _saku/."""
+"""Read a file within the memory root (path policy from config)."""
 
 from pathlib import Path
 
-ALLOWED_PREFIXES = [
-    "blog/",
-    "journal/",
-    "monologue/",
-    "principles/",
-    "skills/",
-    "identity/",
-    "children/",
-    "genome.md",
-    "meta.md",
-    "tools/",
-    "src/",
-    "state/",
-    "study/",
-    "chat.md",
-    "request_list.md",
-]
+from saku.config import get_path_policy
 
 _CODE_ROOT = Path(__file__).resolve().parent.parent
 
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
-    if not any(path.startswith(p) for p in ALLOWED_PREFIXES):
+    if not get_path_policy().is_read_allowed(path):
         return f"[DENY] cannot read from: {path}"
 
     if path.startswith("src/"):

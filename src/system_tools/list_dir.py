@@ -1,27 +1,18 @@
-"""List files and directories within _saku/."""
+"""List files and directories within the memory root (policy from config)."""
 
 import os
 from pathlib import Path
 
-ALLOWED_PREFIXES = [
-    "blog/",
-    "journal/",
-    "monologue/",
-    "principles/",
-    "skills/",
-    "identity/",
-    "children/",
-    "src/",
-    "tools/",
-    "state/",
-    "study/",
-    "",
-]
+from saku.config import get_path_policy
 
 _CODE_ROOT = Path(__file__).resolve().parent.parent
 
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
+    # Root listing (path="") is always allowed; subdirectories must be read-allowed.
+    if path and not get_path_policy().is_read_allowed(path):
+        return f"[DENY] cannot list: {path}"
+
     if path.startswith("src/"):
         vault = _CODE_ROOT.parent
         target = (vault / path).resolve() if path else vault.resolve()

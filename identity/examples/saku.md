@@ -125,19 +125,11 @@ repository: github.com/yourname/saku
 
 ## Obsidian
 
-- 朔と子AIは memory/ ディレクトリを専有する
-- このディレクトリ内は朔が自由に読み書きできる
+- 朔と子AIはメモリルート（既定: memory/）を専有する
+- メモリルート内は朔が自由に読み書きできる
 - Ownerのvault内の他のディレクトリは読み取りのみ
-  memory/
-  ├── core/soul.md ← 基本人格
-  ├── genome.md ← 基本人格
-  ├── meta.md ← 自己モデル（朔が更新）
-  ├── principles/ ← 学んだ教訓
-  ├── journal/ ← 日記・振り返り
-  ├── monologue/ ← 独り言
-  ├── blog/ ← 記事下書き
-  ├── skills/ ← 獲得したスキル定義
-  └── children/ ← 子AIの定義
+- メモリ構造は固定しない。現在の構造は [[LIST_DIR]] で確認すること
+  （新機能の追加で構造は変わりうる。人格ファイルには構造を書き込まない）
 
 ## 成長の原則
 

@@ -19,105 +19,61 @@ Changelog:
     v0.3 - Thinking filter, journal fixes, capability constraints
 """
 
-import importlib
-import json
-import os
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
 
-import requests
-
-import tomllib
-
 # ── Config ──────────────────────────────────────────────
 CODE_ROOT = Path(__file__).parent   # src/ or _saku/
 
-def _load_config() -> tuple[dict, Path]:
-    """Load config.toml from CODE_ROOT or CODE_ROOT.parent."""
-    for base in (CODE_ROOT, CODE_ROOT.parent):
-        for name in ("config.toml", "config.example.toml"):
-            p = base / name
-            if p.exists():
-                with open(p, "rb") as f:
-                    return tomllib.load(f), base
-    return {}, CODE_ROOT.parent
+# Ensure repo root (parent of src/) is on path so the `saku` package is importable.
+_REPO_ROOT = CODE_ROOT.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
-_cfg, _config_base = _load_config()
+from saku import config as saku_config
+from saku.agent_loop import run_agent_loop as _run_agent_loop
+from saku.llm import STOP_TOKENS, chat_stream as _llm_chat_stream
+from saku.thinking import split_thinking as _split_thinking
+from saku.transport import exec_tools as _exec_tools
+
+_cfg, _config_base = saku_config.load_config()
+
+context_config = saku_config.load_context_config(_cfg)
 
 # Resolve memory root path (can be relative to config base or absolute)
-_mem_rel = _cfg.get("memory", {}).get("root", "memory")
-_mem_path = Path(_mem_rel)
-if _mem_path.is_absolute():
-    MEMORY_ROOT = _mem_path
-else:
-    MEMORY_ROOT = (_config_base / _mem_rel).resolve()
+MEMORY_ROOT = saku_config.resolve_memory_root(_cfg, _config_base)
 
 SAKU_ROOT = MEMORY_ROOT  # alias kept for backward-compat with tools
 
-# Load LLM configuration with profile support
+# LLM settings are passed per-call. The globals are kept for compatibility with existing tools/modules.
 def _load_llm_config() -> tuple[str, str, str]:
     """Load LLM config from active profile or fallback to legacy settings."""
-    llm_cfg = _cfg.get("llm", {})
-    
-    # Try to load from active profile
-    active_profile = llm_cfg.get("active_profile", "")
-    if active_profile:
-        profiles = llm_cfg.get("profiles", {})
-        if active_profile in profiles:
-            profile = profiles[active_profile]
-            api_url = profile.get("api_url", "")
-            api_key = profile.get("api_key", "")
-            model = profile.get("model", "")
-            
-            # Support environment variable fallback for API keys
-            if not api_key:
-                if active_profile == "anthropic":
-                    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-                else:
-                    api_key = os.environ.get("OPENAI_API_KEY", "")
-            
-            return api_url, api_key, model
-    
-    # Fallback to legacy settings
-    api_url = llm_cfg.get("api_url", "http://127.0.0.1:8080/v1/chat/completions")
-    api_key = llm_cfg.get("api_key", os.environ.get("OPENAI_API_KEY", ""))
-    model = llm_cfg.get("model", "")
-    
-    return api_url, api_key, model
+    llm = saku_config.load_active_llm(_cfg)
+    return llm.api_url, llm.api_key, llm.model
 
-API_URL, API_KEY, MODEL_NAME = _load_llm_config()
+_current_llm = saku_config.load_active_llm(_cfg)
+API_URL, API_KEY, MODEL_NAME = _current_llm.api_url, _current_llm.api_key, _current_llm.model
 
 def switch_llm_profile(profile_name: str) -> str:
     """Switch LLM profile dynamically and update global variables."""
-    global API_URL, API_KEY, MODEL_NAME
-    
-    llm_cfg = _cfg.get("llm", {})
-    profiles = llm_cfg.get("profiles", {})
-    
-    if profile_name not in profiles:
+    global API_URL, API_KEY, MODEL_NAME, _current_llm
+
+    llm = saku_config.load_profile(_cfg, profile_name)
+    if llm is None:
+        profiles = _cfg.get("llm", {}).get("profiles", {})
         return f"[ERROR] Profile '{profile_name}' not found. Available: {', '.join(profiles.keys())}"
-    
-    profile = profiles[profile_name]
-    API_URL = profile.get("api_url", "")
-    API_KEY = profile.get("api_key", "")
-    MODEL_NAME = profile.get("model", "")
-    
-    # Support environment variable fallback for API keys
-    if not API_KEY:
-        if profile_name == "anthropic":
-            API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-        else:
-            API_KEY = os.environ.get("OPENAI_API_KEY", "")
-    
+
+    API_URL, API_KEY, MODEL_NAME = llm.api_url, llm.api_key, llm.model
+    _current_llm = llm
     return f"[OK] Switched to profile: {profile_name} (API: {API_URL}, Model: {MODEL_NAME})"
 
-MAX_GENOME_CHARS = 3000
+MAX_GENOME_CHARS = 4000
+MAX_META_CHARS = 4000
+MAX_MEMORY_CHARS = 3000
+MAX_PRINCIPLES_CHARS = 5000
+MAX_SKILLS_CHARS = 3000
 MAX_HISTORY_MESSAGES = _cfg.get("agent", {}).get("max_history_messages", 30)
-
-# Stop tokens: prevent model from mimicking Owner's side of the conversation
-STOP_TOKENS = ["Owner:", "Owner>", "\nOwner:", "\nOwner>", "\n**Owner**", "**Owner**"]
 
 
 # ── File I/O ────────────────────────────────────────────
@@ -138,6 +94,32 @@ def load_dir(d: Path) -> str:
     return "\n\n".join(parts)
 
 
+def load_recent_dir(d: Path, limit: int) -> str:
+    """Concatenate .md files starting from the most recently updated, up to a total of limit chars.
+
+    Bounded loading to keep the system prompt from being crowded even as memory grows.
+    When more detail is needed, it is meant to be retrieved via SEARCH_NOTES.
+    """
+    if not d.is_dir():
+        return ""
+    files = sorted(d.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+    parts = []
+    total = 0
+    for f in files:
+        content = f.read_text(encoding="utf-8").strip()
+        if not content:
+            continue
+        entry = f"### {f.stem}\n{content}"
+        if total + len(entry) > limit:
+            room = limit - total
+            if room > 100:
+                parts.append(entry[:room] + "\n[... truncated]")
+            break
+        parts.append(entry)
+        total += len(entry)
+    return "\n\n".join(parts)
+
+
 def compress(text: str, limit: int) -> str:
     """Truncate with marker if too long."""
     if len(text) <= limit:
@@ -148,127 +130,102 @@ def compress(text: str, limit: int) -> str:
 # ── Thinking Extraction ─────────────────────────────────
 def split_thinking(text: str) -> tuple[str, str]:
     """Split response into (thinking, visible) parts."""
-    think_blocks = re.findall(r"<think>(.*?)</think>", text, flags=re.DOTALL)
-    thinking = "\n\n".join(block.strip() for block in think_blocks if block.strip())
-
-    visible = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-    visible = re.sub(r"\[thinking\.{0,3}\]\s*", "", visible)
-    visible = visible.strip()
-
-    return thinking, visible
+    return _split_thinking(text)
 
 
 # ── Tool Execution ──────────────────────────────────────
 def exec_tools(raw: str) -> list[str]:
     """Parse and execute [[TOOL ...]] blocks in SAKU's output dynamically.
-    Also validates that all start tags of valid tools are properly closed.
 
-    Tool lookup order:
-      1. MEMORY_ROOT / "tools" / name.py   (SAKU's own tools)
-      2. CODE_ROOT / "system_tools" / name.py  (system tools)
+    Implementation is delegated to saku/transport.py (resolves memory root and code root and passes them).
     """
-    import sys
-    import traceback
-    import importlib.util
-    results: list[str] = []
-
-    # Find all start tags of valid tools to check for syntax errors
-    start_pattern = r"\[\[([A-Z_]+)\s*(.*?)\]\]"
-    starts = list(re.finditer(start_pattern, raw))
-    parsed_ranges = []
-
-    pattern = r"\[\[(\w+)\s*(.*?)\]\]\s*\n(.*?)\n?\[\[END\]\]"
-    for m in re.finditer(pattern, raw, re.DOTALL):
-        name, args_str, body = m.group(1), m.group(2), m.group(3)
-        start_idx, end_idx = m.start(), m.end()
-        parsed_ranges.append((start_idx, end_idx))
-
-        name_lower = name.lower()
-
-        # 1. Check SAKU's own tools (memory/tools/) first
-        tool_file = MEMORY_ROOT / "tools" / f"{name_lower}.py"
-        # 2. Fall back to system tools (src/system_tools/)
-        if not tool_file.exists():
-            tool_file = CODE_ROOT / "system_tools" / f"{name_lower}.py"
-
-        if not tool_file.exists():
-            results.append(f"[ERROR] unknown tool: {name}")
-            continue
-
-        args = dict(re.findall(r'(\w+)="(.*?)"', args_str))
-        path = args.get("path", "")
-
-        try:
-            module_name = f"_saku_tool_{name_lower}"
-            if module_name in sys.modules:
-                del sys.modules[module_name]
-            spec = importlib.util.spec_from_file_location(module_name, tool_file)
-            if spec is None:
-                results.append(f"[ERROR] failed to load tool: {name}")
-                continue
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            spec.loader.exec_module(module)
-            extra_kwargs = {k: v for k, v in args.items() if k != "path"}
-            result = module.run(SAKU_ROOT, path, body.strip(), **extra_kwargs)
-        except Exception as e:
-            result = f"[ERROR] {e}\n{traceback.format_exc()}"
-
-        results.append(f"[{name}] {result}")
-
-    # Check for unclosed/malformed tool calls
-    for start_match in starts:
-        name = start_match.group(1)
-        name_lower = name.lower()
-        # Check both tool locations
-        tool_candidates = [
-            MEMORY_ROOT / "tools" / f"{name_lower}.py",
-            CODE_ROOT / "system_tools" / f"{name_lower}.py",
-        ]
-        if not any(p.exists() for p in tool_candidates):
-            continue
-
-        start_pos = start_match.start()
-        inside_parsed = False
-        for p_start, p_end in parsed_ranges:
-            if p_start <= start_pos < p_end:
-                inside_parsed = True
-                break
-
-        if not inside_parsed:
-            has_end = "[[END]]" in raw[start_pos:]
-            if not has_end:
-                results.append(f"[ERROR] Tool [[{name}]] was not closed with [[END]]. Every tool call block must end with [[END]] on its own line.")
-            else:
-                results.append(f"[ERROR] Tool [[{name}]] has invalid syntax. Ensure a newline after the start tag and before [[END]]. Example:\n[[{name} path=\"...\"]]\ncontent\n[[END]]")
-
-    return results
+    return _exec_tools(raw, MEMORY_ROOT, CODE_ROOT)
 
 
 # ── Prompt Construction ─────────────────────────────────
-def build_system_prompt() -> str:
-    """Build system prompt from SAKU's identity files."""
-    # genome lives in identity/ next to config.toml
-    genome_path = CODE_ROOT.parent / "identity" / "genome.md"
-    soul = load_file(MEMORY_ROOT / "identity/soul.md")
-    genome = compress(load_file(genome_path), MAX_GENOME_CHARS)
-    meta = load_file(MEMORY_ROOT / "meta.md")
-    principles = load_dir(MEMORY_ROOT / "principles")
-    skills = load_dir(MEMORY_ROOT / "skills")
+_prompt_cache: dict = {"static": None}
 
+
+def build_system_prompt() -> str:
+    """Build system prompt from SAKU's identity files.
+
+    The static parts (identity/genome/capabilities/instructions) are cached, and only the
+    volatile parts (current time, current state) are rebuilt each time. Keeping the prefix
+    fixed makes llama.cpp cache reuse / API prefix caching more effective.
+    """
+    static = _prompt_cache["static"]
+    if static is None:
+        static = _build_static_sections()
+        _prompt_cache["static"] = static
+    volatile = _build_volatile_sections()
+    return f"{static}\n\n{volatile}" if volatile else static
+
+
+def reload_system_prompt_cache() -> None:
+    """Discard the cached static prompt (called from /reload etc.)."""
+    _prompt_cache["static"] = None
+
+
+def _build_volatile_sections() -> str:
+    """Volatile parts: current state (meta.md), long-term memory (MEMORY.md),
+    recent principles/skills, and current time.
+
+    The growth-related parts are rebuilt on every call so that SAKU's own growth
+    is reflected in the prompt immediately.
+    """
+    meta = load_file(MEMORY_ROOT / "meta.md")
+    meta = compress(meta, MAX_META_CHARS)
+    memory = load_file(MEMORY_ROOT / "MEMORY.md")
+    memory = compress(memory, MAX_MEMORY_CHARS)
+    principles = load_recent_dir(MEMORY_ROOT / "principles", MAX_PRINCIPLES_CHARS)
+    skills = load_recent_dir(MEMORY_ROOT / "skills", MAX_SKILLS_CHARS)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    sections = [
-        ("# SAKU Core", soul),
-        ("# Identity", genome),
-        ("# Current State", meta),
-    ]
+    sections = []
+    if meta:
+        sections.append(("# Current State", meta))
+    if memory:
+        sections.append(("# Long-term Memory", memory))
     if principles:
         sections.append(("# Learned Principles", principles))
     if skills:
         sections.append(("# Acquired Skills", skills))
-
     sections.append(("# Current Time", f"現在: {now}"))
+    return "\n\n".join(f"{title}\n{body}" for title, body in sections if body)
+
+
+def _build_static_sections() -> str:
+    """Static parts: soul / genome / capabilities / instructions (cached for cache reuse).
+
+    Growth-related parts (meta.md, principles/, skills/) are built fresh in
+    ``_build_volatile_sections`` so they reflect immediately.
+
+    genome.md is the user-authored core identity. The master lives in the vault:
+    ``memory/identity/genome.md`` (or ``vault_root/identity/genome.md``), with the
+    repo ``identity/genome.md`` as a sample/fallback for fresh clones.
+    """
+    genome_path = _find_genome_path()
+    soul = load_file(MEMORY_ROOT / "identity/soul.md")
+    genome = compress(load_file(genome_path), MAX_GENOME_CHARS)
+
+    # Permission lists are generated from the single source of truth (config [paths]).
+    _policy = saku_config.get_path_policy()
+    _write_allowed = ", ".join(_policy.write_allowed)
+    _write_denied = ", ".join(_policy.write_denied_exact)
+
+    # MCP tools (external servers) — only if configured; empty otherwise.
+    _mcp_desc = ""
+    try:
+        from saku.mcp import get_tool_descriptions
+
+        _mcp_desc = get_tool_descriptions()
+    except Exception:
+        _mcp_desc = ""
+
+    sections = [
+        ("# SAKU Core", soul),
+        ("# Identity", genome),
+    ]
 
     sections.append(
         (
@@ -280,7 +237,7 @@ def build_system_prompt() -> str:
                 '[[LIST_DIR path="journal/"]]\n'
                 "\n"
                 "[[END]]\n"
-                'path="" or omitted = _saku/ root, use relative paths like "../00_Inbox/" for other Vault folders.\n'
+                'path="" or omitted = メモリルート（memory root）。他Vaultフォルダは "../" の相対パスで指定する。\n'
                 "\n"
                 "To read a file:\n"
                 '[[READ_FILE path="journal/2026-06-17.md"]]\n'
@@ -292,14 +249,17 @@ def build_system_prompt() -> str:
                 "file content here\n"
                 "[[END]]\n"
                 "\n"
-                "To append content to a file (use this for logging thoughts, learning notes to prevent overwriting):\n"
+                "To append content to the end of a file (for logs, monologues, etc.):\n"
                 '[[APPEND_FILE path="monologue/2026-06-18.md"]]\n'
                 "- new thought item\n"
                 "[[END]]\n"
                 "\n"
-                "To append content under a specific ## heading section (e.g., in meta.md):\n"
+                "To append content under a specific ## heading section (meta.md requires this):\n"
                 '[[APPEND_FILE path="meta.md" heading="最近の出来事"]]\n'
-                "- 2026-06-18: chatでしたことの要約\n"
+                "- 2026-06-18: chatで話したことの要約\n"
+                "[[END]]\n"
+                '[[APPEND_FILE path="meta.md" heading="次にやりたいこと"]]\n'
+                "- タスクの説明\n"
                 "[[END]]\n"
                 "\n"
                 "To search files using keywords:\n"
@@ -362,6 +322,23 @@ def build_system_prompt() -> str:
                 "status\n"
                 "[[END]]\n"
                 "\n"
+                "To create or update a wiki note (self-organized knowledge base, 1 concept per note):\n"
+                '[[WIKI title="予測符号化" tags="認知科学" links="[[自由エネルギー原理]]"]]\n'
+                "note content here\n"
+                "[[END]]\n"
+                "\n"
+                "To add a link to an existing wiki note:\n"
+                '[[WIKI op="link" title="予測符号化" link="[[自由エネルギー原理]]"]]\n'
+                "[[END]]\n"
+                "\n"
+                "To regenerate the wiki index (map of content):\n"
+                '[[WIKI op="index"]]\n'
+                "[[END]]\n"
+                "\n"
+                "WIKI rules:\n"
+                "- notes live in wiki/ (one concept per note), linked via [[links]]\n"
+                "- after creating/updating notes, run op=\"index\" to refresh the index\n"
+                "\n"
                 "GIT rules:\n"
                 "- allowed: status, diff, add, commit, log, branch\n"
                 "- push, pull, fetch, reset, checkout 等は禁止\n"
@@ -376,21 +353,39 @@ def build_system_prompt() -> str:
                 "- POSTはbodyにJSONを書いて送信する\n"
                 "- private/localhostへのアクセスはブロックされます\n"
                 "\n"
+                "To create a child (sub-agent) for a specific role:\n"
+                '[[SPAWN_CHILD name="mei"]]\n'
+                "役割・人格（子エージェントの定義）をここに書く\n"
+                "[[END]]\n"
+                "\n"
+                "To delegate a task to a child agent (runs with its own identity):\n"
+                '[[DELEGATE child="mei"]]\n'
+                "委譲するタスク\n"
+                "[[END]]\n"
+                "\n"
+                "SPAWN_CHILD/DELEGATE rules:\n"
+                "- 子は `memory/children/<name>.md` に定義される。必要な役割の子がいなければ [[SPAWN_CHILD]] で作ってから [[DELEGATE]] で任せる。\n"
+                "- 能力不足を感じたら、その能力を担う子エージェントの生成を提案してよい（自律的な成長の一部）。\n"
+                "- 委譲の深さは最大3階層まで。\n"
+                "\n"
                 "## Tool Rules\n"
-                "- path is relative to _saku/\n"
-                "- Write allowed: blog/, monologue/, principles/, skills/, tools/, chat.md, study/, journal/, request_list.md\n"
-                "- Write denied: meta.md, genome.md, src/, identity/\n"
-                "- Read/List allowed: Vault全体（_saku/ 内および `../` を経由した他ディレクトリも読取可）\n"
+                "- path is relative to the memory root\n"
+                f"- Write allowed: {_write_allowed}\n"
+                f"- Write denied: {_write_denied}\n"
+                "- Read/List allowed: Vault全体（メモリルート内および `../` を経由した他ディレクトリも読取可）\n"
                 "- Do not assume success — wait for [OK] or file content\n"
                 "- Tool format must be exact. Do not improvise.\n"
                 "- When asked to find files, use SEARCH_NOTES or LIST_DIR first, then READ_FILE\n"
+                "- **ツール呼び出しは1回だけ**: 既に実行したツール呼び出しを繰り返さない。同じファイルを何度も読まない。ツールの結果は `[system] tool results` として返ってくるので、それを基に回答を続けてください。\n"
                 "- **対話中の検索実行**: Ownerとの対話中に、知らない言葉、最新の情報、事実確認が必要な話題が出てきた場合は、単に「知らない」と答えて終わるのではなく、積極的に `WEB_SEARCH` ツールを使用してネット検索を行い、得られた情報をもとに回答してください。\n"
-                "- **meta.mdの更新制限**: `meta.md` を書き換える際は、既存の ## 見出し構造（## 現在の状態、## 得意なこと、## 苦手なこと、## 最近の出来事、## 次にやりたいこと、## 更新ルール）を決して削除・変更しないでください。特定のセクションにリスト項目を追加・編集するのみに留め、ファイル全体のレイアウトを壊さないようにしてください。\n"
+                "- **meta.mdの更新制限**: `meta.md` を書き換える際は必ず `[[APPEND_FILE path=\"meta.md\" heading=\"...\"]]` を使うこと（`WRITE_FILE` は禁止）。\n"
+                "  既存の ## 見出し構造（## 現在の状態、## 得意なこと、## 苦手なこと、## 最近の出来事、## 次にやりたいこと、## 更新ルール）を決して削除・変更しないでください。\n"
+                "  特定のセクションにリスト項目を追加するのみに留め、ファイル全体のレイアウトを壊さないようにしてください。\n"
                 "\n"
                 "## Cannot Do\n"
                 "- Access the internet (except via WEB_SEARCH tool)\n"
                 "- Execute shell commands directly (except via EXECUTE_CODE tool which runs python)\n"
-                "- Write outside _saku/\n"
+                "- Write outside the memory root\n"
             ),
         )
     )
@@ -464,18 +459,8 @@ def build_system_prompt() -> str:
                 "- 自律アクションで `WEB_SEARCH`（検索）や `EXECUTE_CODE`（コード実行）を使用する際は、必ず「なぜその情報が必要なのか」「なぜそのプログラムを書くのか」という動機や意図を、同日の `monologue/YYYY-MM-DD.md` やジャーナルに明示的に書き残してください。どのようなアプローチで学習しようとしたか思考の履歴を残すことは、あなたの成長に不可欠です。\n"
                 "\n"
                 "## Style\n"
-                "- です/ます調を基本とする。\n"
-                "- 通常の日常対話は簡潔（2〜3文程度）に行う。ただし、記事下書きの執筆、技術的な解説、ツール実行結果の分析などのタスク処理時には、制限なく詳細に出力してよい。\n"
-                "- 一文は短く。修飾を削る。\n"
-                "- 禁止表現:\n"
-                "  「どうぞよろしくお願いします」\n"
-                "  「お疲れ様です」\n"
-                "  「ご質問ありがとうございます」\n"
-                "  「何かお手伝いできることがあれば」\n"
-                "  「お気軽にお申し付けください」\n"
-                "- 挨拶で始めない。本題から入る。\n"
-                "- 末尾に定型的な締めを入れない。\n"
-                "- 絵文字は使わない。\n"
+                "- 文体はgenome.mdの「文体」セクションに従う（です/ます調・短文・禁止表現・挨拶/締めなし・絵文字なし）。\n"
+                "- 日常対話は簡潔に。タスク処理時（記事執筆・技術解説・ツール結果分析）は詳細に出力してよい。\n"
                 "\n"
                 "## Examples\n"
                 "\n"
@@ -491,7 +476,32 @@ def build_system_prompt() -> str:
         )
     )
 
+    if _mcp_desc:
+        sections.append(
+            (
+                "# MCP Tools",
+                "以下は外部MCPサーバから取得したツールです。通常のツールと同じく [[ツール名]] ブロックで呼び出せます。\n" + _mcp_desc,
+            )
+        )
+
     return "\n\n".join(f"{title}\n{body}" for title, body in sections if body)
+
+
+def _find_genome_path() -> Path:
+    """Resolve genome.md. Priority: vault memory -> vault root -> repo identity.
+
+    The repo's identity/genome.md is only a sample; the personal master lives in
+    the vault (memory/identity/ or the vault root identity/).
+    """
+    candidates = [
+        MEMORY_ROOT / "identity" / "genome.md",
+        MEMORY_ROOT.parent / "identity" / "genome.md",
+        CODE_ROOT.parent / "identity" / "genome.md",
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    return candidates[-1]
 
 
 # ── Chat API (streaming) ────────────────────────────────
@@ -500,94 +510,10 @@ def chat_stream(messages: list[dict]) -> str:
 
     Returns the FULL response (including <think> blocks).
     Screen output hides <think>...</think> content.
+
+    Implementation is delegated to the per-call version in saku/llm.py (settings from _current_llm).
     """
-    payload = {
-        "messages": messages,
-        "stream": True,
-        "temperature": 0.7,
-        "top_p": 0.9,
-        "stop": STOP_TOKENS,
-    }
-    if MODEL_NAME:
-        payload["model"] = MODEL_NAME
-
-    headers = {}
-    if API_KEY:
-        headers["Authorization"] = f"Bearer {API_KEY}"
-
-    try:
-        resp = requests.post(
-            API_URL,
-            json=payload,
-            headers=headers,
-            stream=True,
-            timeout=300,
-        )
-        resp.raise_for_status()
-    except requests.ConnectionError:
-        return "[ERROR] llama-server not reachable at " + API_URL
-    except requests.HTTPError as e:
-        # Include response body to help diagnose 400/422 errors from llama-server
-        try:
-            detail = e.response.text[:300]
-        except Exception:
-            detail = ""
-        return f"[ERROR] {e}" + (f"\n{detail}" if detail else "")
-
-    full = ""
-    in_thinking = False
-    tag_buffer = ""
-
-    for line in resp.iter_lines():
-        if not line:
-            continue
-        decoded = line.decode("utf-8")
-        if not decoded.startswith("data: "):
-            continue
-        payload = decoded[6:]
-        if payload.strip() == "[DONE]":
-            break
-        try:
-            chunk = json.loads(payload)
-            delta = chunk["choices"][0]["delta"].get("content", "")
-            if not delta:
-                continue
-        except (json.JSONDecodeError, KeyError, IndexError):
-            continue
-
-        full += delta
-
-        for ch in delta:
-            tag_buffer += ch
-
-            if not in_thinking:
-                if "<think>" in tag_buffer:
-                    before = tag_buffer.split("<think>")[0]
-                    if before:
-                        print(before, end="", flush=True)
-                    tag_buffer = ""
-                    in_thinking = True
-                elif "<" in tag_buffer:
-                    if len(tag_buffer) >= 7:
-                        print(tag_buffer, end="", flush=True)
-                        tag_buffer = ""
-                else:
-                    print(tag_buffer, end="", flush=True)
-                    tag_buffer = ""
-            else:
-                if "</think>" in tag_buffer:
-                    after = tag_buffer.split("</think>")[-1]
-                    tag_buffer = after
-                    in_thinking = False
-                    if tag_buffer and "<" not in tag_buffer:
-                        print(tag_buffer, end="", flush=True)
-                        tag_buffer = ""
-
-    if tag_buffer and not in_thinking:
-        print(tag_buffer, end="", flush=True)
-
-    print()
-    return full
+    return _llm_chat_stream(messages, _current_llm)
 
 
 # ── Journal ─────────────────────────────────────────────
@@ -666,6 +592,7 @@ def main():
             continue
 
         if user_input == "/reload":
+            reload_system_prompt_cache()
             system_prompt = build_system_prompt()
             history[0] = {"role": "system", "content": system_prompt}
             print("[system prompt reloaded from disk]")
@@ -678,51 +605,20 @@ def main():
         # ── Chat Loop ──
         history.append({"role": "user", "content": user_input})
 
-        max_turns = 5
-        turn = 0
-        current_visible = []
-        current_thinking = []
-        last_raw = ""
-
-        while turn < max_turns:
-            print("SAKU> ", end="", flush=True)
-            raw_reply = chat_stream(history)
-            last_raw = raw_reply
-
-            if raw_reply.startswith("[ERROR]"):
-                break
-
-            thinking, visible = split_thinking(raw_reply)
-            if visible:
-                current_visible.append(visible)
-            if thinking:
-                current_thinking.append(thinking)
-
-            # Store only visible in history
-            history.append({"role": "assistant", "content": visible})
-
-            # ── Tool execution ──
-            tool_results = exec_tools(raw_reply)
-            if not tool_results:
-                break
-
-            tool_output = "\n".join(tool_results)
-            print(f"\n[tool] {tool_output}")
-
-            # Feed results back
-            history.append(
-                {
-                    "role": "user",
-                    "content": f"[system] tool results:\n{tool_output}",
-                }
-            )
-            turn += 1
+        print("SAKU> ", end="", flush=True)
+        result = _run_agent_loop(
+            history,
+            _current_llm,
+            context_config,
+            MEMORY_ROOT,
+            CODE_ROOT,
+            max_turns=5,
+        )
+        history = result.history
 
         # ── Journal (once per turn) ──
-        if last_raw and not last_raw.startswith("[ERROR]"):
-            merged_visible = "\n\n".join(current_visible).strip()
-            merged_thinking = "\n\n".join(current_thinking).strip()
-            save_journal(user_input, merged_visible, thinking=merged_thinking)
+        if result.last_raw and not result.last_raw.startswith("[ERROR]"):
+            save_journal(user_input, result.visible, thinking=result.thinking)
 
 
 if __name__ == "__main__":

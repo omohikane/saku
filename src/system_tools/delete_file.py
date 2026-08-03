@@ -1,40 +1,23 @@
-"""Delete a file within _saku/ (restricted paths only)."""
+"""Delete a file within the memory root (restricted paths only, policy from config)."""
 
 from pathlib import Path
 
-ALLOWED_PREFIXES = [
-    "blog/",
-    "journal/",
-    "monologue/",
-    "principles/",
-    "skills/",
-    "study/",
-    "tools/",
-    "drafts/",
-]
-
-DENIED_EXACT = [
-    "meta.md",
-    "chat.md",
-    "request_list.md",
-    "genome.md",
-    "soul.md",
-    "identity/genome.md",
-    "identity/soul.md",
-]
+from saku.config import get_path_policy
 
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
+    policy = get_path_policy()
+
     if not path:
         return "[ERROR] path is empty"
 
     # Normalise any leading ./ but keep the path relative
     clean = path.lstrip("./")
 
-    if clean in DENIED_EXACT:
+    if clean in policy.delete_denied_exact:
         return f"[DENY] cannot delete: {path}"
 
-    if not any(clean.startswith(p) for p in ALLOWED_PREFIXES):
+    if not policy.is_write_allowed(clean):
         return f"[DENY] cannot delete from: {path}"
 
     target = (base / clean).resolve()

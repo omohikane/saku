@@ -16,6 +16,23 @@ model = ""
 api_url = "http://127.0.0.1:8080/v1/chat/completions"
 api_key = ""
 model = ""
+# サーバ起動時の -c 値と、エージェントの作業予算（VRAM/RAM制約で決める）
+# context_window = 8192          # llama-server -c の値
+# working_budget_tokens = 4096   # エージェントが使う上限（-c より低めに設定）
+
+# LLM instances - 複数ローカルサーバを名前付きで使い分ける（Phase A: 定義のみ / Phase C以降で本格利用）
+# インスタンスはプロファイルを参照し、必要に応じて上書きできる。
+# [llm.instances.main]
+# profile = "local"
+# model = ""
+# context_window = 8192
+# working_budget_tokens = 4096
+#
+# [llm.instances.fast]
+# profile = "local"
+# api_url = "http://127.0.0.1:8081/v1/chat/completions"  # 2台目の小さめモデル
+# context_window = 4096
+# working_budget_tokens = 2048
 
 [llm.profiles.openai]
 # OpenAI API
@@ -38,7 +55,30 @@ model = "claude-3-5-sonnet-20240620"
 [memory]
 # Path to the memory directory, relative to this config file
 # Default: memory/ in the repo root
+#
+# 絶対パスや環境変数（${VAR}）も使えます。Obsidian vault など別ディレクトリを
+# 指す場合に便利です:
+#   root = "/path/to/vault/_saku/memory"
+#   root = "${SAKU_MEMORY_ROOT}"
 root = "memory"
+
+# Obsidian inbox (00_Inbox) の場所。人によって構成が異なるため設定化しています。
+# 既定は memory の1つ上の 00_Inbox。絶対パス / ${VAR} / 相対（config基準）可。
+#   inbox_dir = "/path/to/vault/00_Inbox"
+#   inbox_dir = "${VAULT_ROOT}/00_Inbox"
+
+# メモリ構造の初期化: `saku setup [path]` を実行するとこのrootに標準構造を作ります。
+
+# [paths] - 朔が読み書きできる場所の許可リスト（メモリルート基準の相対パス）
+# 省略時は下記の既定値が使われます。ツールの強制とシステムプロンプトの両方に
+# この設定が単一の情報源として使われます。
+# read_allowed = ["blog/", "journal/", "monologue/", "principles/", "skills/",
+#                 "identity/", "children/", "genome.md", "meta.md", "MEMORY.md", "tools/",
+#                 "src/", "state/", "study/", "chat.md", "request_list.md", "wiki/"]
+# write_allowed = ["blog/", "monologue/", "principles/", "skills/", "tools/",
+#                  "chat.md", "study/", "journal/", "request_list.md", "wiki/", "children/"]
+# write_denied_exact = ["meta.md"]          # WRITE_FILE で上書き不可
+# delete_denied_exact = ["meta.md", "chat.md", "request_list.md", "genome.md", "soul.md"]
 
 [agent]
 max_history_messages = 30
@@ -50,3 +90,43 @@ inbox_poll_seconds = 3600             # Inbox scan interval (1 hour)
 archive_after_inactive_seconds = 1800 # Archive chat after 30 min inactivity
 archive_after_turns = 10              # Archive chat after 10 turns
 auto_initiate_cooldown_seconds = 28800 # SAKU self-initiates every 8 hours
+
+# [context] - コンテキスト管理（Phase B で実装。定義のみ）
+# 作業予算の何割で自動コンパクションするか（0.7 = 70%）
+# compaction_trigger = 0.7
+# コンパクション後に保持する直近トークン数
+# keep_recent_tokens = 2000
+# 古いツール結果を縮小/削除するか
+# prune_tool_results = true
+# ツール結果を残す最大文字数
+# max_tool_result_chars = 2000
+
+# [channels] - チャネル抽象化（Phase B で実装。定義のみ）
+# 送受信に使うチャネル（webui / chatmd / discord）
+# enabled = ["webui", "chatmd"]
+# 問いかけ・アラートの送信先
+# proactive = ["webui"]
+
+# [mcp] - MCP サーバ設定
+# サーバ公開（SAKU のメモリ/ツールを外部 MCP クライアントへ公開。トークン認証）
+# [mcp.server]
+# enable = true
+# token = "change-me"        # 外部クライアントは Authorization: Bearer <token>
+# bind = "127.0.0.1"
+# port = 8765
+# 接続する外部 MCP サーバ（クライアント方向・実装済み）
+# 各サーバのツールは tools/list で自動発見され、[[ツール名]] ブロックで呼び出せる
+# [mcp.servers.homeassistant]
+# url = "http://127.0.0.1:8766/mcp"
+
+# [ui] - Web UI 設定（Phase B で実装。定義のみ）
+# [ui]
+# host = "127.0.0.1"
+# port = 8787
+# auto_daemon = true   # UI 起動時に自動ループ（daemon）も一緒に起動する
+
+# [ops] - ホーム運用の承認境界（Phase E で実装。定義のみ）
+# 自動実行OKの操作（読み取り系）と、承認必須の操作（破壊的）を分離する
+# [ops]
+# auto_actions = ["ping", "disk_usage", "service_status"]
+# approve_required = ["restart_service", "block_ip", "apply_firewall"]

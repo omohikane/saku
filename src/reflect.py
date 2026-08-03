@@ -15,6 +15,13 @@ from pathlib import Path
 CODE_ROOT = Path(__file__).parent
 sys.path.append(str(CODE_ROOT))
 
+# Ensure repo root (parent of src/) is on path so the `saku` package is importable.
+_REPO_ROOT = CODE_ROOT.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from saku.agent_loop import run_agent_loop as _run_agent_loop
+
 import saku_core as agent
 
 # Resolve SAKU_ROOT from agent config
@@ -65,51 +72,19 @@ def run_reflection(target_date: str = None) -> None:
     ]
 
     print("[*] Contacting LLM for reflection...")
-    
-    max_turns = 5
-    turn = 0
-    current_visible = []
-    current_thinking = []
-    last_raw = ""
 
-    while turn < max_turns:
-        print(f"[*] Reflection turn {turn + 1}/{max_turns}...")
-        raw_reply = agent.chat_stream(history)
-        last_raw = raw_reply
-
-        if raw_reply.startswith("[ERROR]"):
-            print(f"[!] LLM Error: {raw_reply}")
-            break
-
-        thinking, visible = agent.split_thinking(raw_reply)
-        if visible:
-            current_visible.append(visible)
-        if thinking:
-            current_thinking.append(thinking)
-
-        history.append({"role": "assistant", "content": visible})
-
-        # Process any tools SAKU outputted during reflection
-        tool_results = agent.exec_tools(raw_reply)
-        if not tool_results:
-            break
-
-        tool_output = "\n".join(tool_results)
-        print(f"\n[tool] {tool_output}")
-
-        history.append(
-            {
-                "role": "user",
-                "content": f"[system] tool results:\n{tool_output}",
-            }
-        )
-        turn += 1
+    result = _run_agent_loop(
+        history,
+        agent._current_llm,
+        agent.context_config,
+        agent.MEMORY_ROOT,
+        agent.CODE_ROOT,
+        max_turns=5,
+    )
 
     # Log to journal
-    if last_raw and not last_raw.startswith("[ERROR]"):
-        merged_visible = "\n\n".join(current_visible).strip()
-        merged_thinking = "\n\n".join(current_thinking).strip()
-        agent.save_autonomous_log("自律振り返り", merged_visible, thinking=merged_thinking)
+    if result.last_raw and not result.last_raw.startswith("[ERROR]"):
+        agent.save_autonomous_log("自律振り返り", result.visible, thinking=result.thinking)
         print("[*] Reflection successfully completed and logged.")
     else:
         print("[!] Reflection failed or skipped due to errors.")
