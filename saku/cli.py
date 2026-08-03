@@ -45,7 +45,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if cmd in ("mcp", "mcp-server"):
-        print("[saku] 'mcp' は Phase C で実装予定です。")
+        from saku.mcp_server import main as mcp_main
+
+        mcp_main()
         return 0
 
     if cmd == "setup":

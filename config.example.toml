@@ -108,10 +108,10 @@ auto_initiate_cooldown_seconds = 28800 # SAKU self-initiates every 8 hours
 # proactive = ["webui"]
 
 # [mcp] - MCP サーバ設定
-# サーバ公開時の認可トークン（外部から SAKU を操作するための API トークン。Phase C サーバ側）
+# サーバ公開（SAKU のメモリ/ツールを外部 MCP クライアントへ公開。トークン認証）
 # [mcp.server]
-# enable = false
-# token = "change-me"
+# enable = true
+# token = "change-me"        # 外部クライアントは Authorization: Bearer <token>
 # bind = "127.0.0.1"
 # port = 8765
 # 接続する外部 MCP サーバ（クライアント方向・実装済み）

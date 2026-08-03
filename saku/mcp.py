@@ -12,6 +12,7 @@ imported lazily so the core runs without it.
 """
 
 import asyncio
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
 
@@ -47,7 +48,21 @@ async def _server_streams(server: McpServer):
     if server.url:
         from mcp.client.streamable_http import streamable_http_client
 
-        return streamable_http_client(server.url, headers=server.headers or None)
+        if server.headers:
+            from mcp.client.streamable_http import create_mcp_http_client
+
+            http_client = create_mcp_http_client(headers=server.headers)
+
+            @asynccontextmanager
+            async def _authed():
+                try:
+                    async with streamable_http_client(server.url, http_client=http_client) as streams:
+                        yield streams
+                finally:
+                    await http_client.aclose()
+
+            return _authed()
+        return streamable_http_client(server.url)
 
     from mcp import StdioServerParameters
     from mcp.client.stdio import stdio_client
