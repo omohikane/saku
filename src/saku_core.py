@@ -202,6 +202,11 @@ def _build_static_sections() -> str:
     soul = load_file(MEMORY_ROOT / "identity/soul.md")
     genome = compress(load_file(genome_path), MAX_GENOME_CHARS)
 
+    # Permission lists are generated from the single source of truth (config [paths]).
+    _policy = saku_config.get_path_policy()
+    _write_allowed = ", ".join(_policy.write_allowed)
+    _write_denied = ", ".join(_policy.write_denied_exact)
+
     sections = [
         ("# SAKU Core", soul),
         ("# Identity", genome),
@@ -318,8 +323,8 @@ def _build_static_sections() -> str:
                 "\n"
                 "## Tool Rules\n"
                 "- path is relative to the memory root\n"
-                "- Write allowed: blog/, monologue/, principles/, skills/, tools/, chat.md, study/, journal/, request_list.md\n"
-                "- Write denied: meta.md, genome.md, src/, identity/\n"
+                f"- Write allowed: {_write_allowed}\n"
+                f"- Write denied: {_write_denied}\n"
                 "- Read/List allowed: Vault全体（メモリルート内および `../` を経由した他ディレクトリも読取可）\n"
                 "- Do not assume success — wait for [OK] or file content\n"
                 "- Tool format must be exact. Do not improvise.\n"

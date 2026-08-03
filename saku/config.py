@@ -149,6 +149,61 @@ def load_llm_instance(cfg: dict, name: str = "main") -> LlmConfig:
     return llm
 
 
+# ── Path Policy (read/write permissions, single source of truth) ──
+DEFAULT_READ_ALLOWED = [
+    "blog/", "journal/", "monologue/", "principles/", "skills/",
+    "identity/", "children/", "genome.md", "meta.md", "tools/",
+    "src/", "state/", "study/", "chat.md", "request_list.md", "wiki/",
+]
+DEFAULT_WRITE_ALLOWED = [
+    "blog/", "monologue/", "principles/", "skills/", "tools/",
+    "chat.md", "study/", "journal/", "request_list.md", "wiki/",
+]
+DEFAULT_WRITE_DENIED_EXACT = ["meta.md"]
+DEFAULT_DELETE_DENIED_EXACT = ["meta.md", "chat.md", "request_list.md", "genome.md", "soul.md"]
+
+
+@dataclass
+class PathPolicy:
+    read_allowed: list[str]
+    write_allowed: list[str]
+    write_denied_exact: list[str]
+    delete_denied_exact: list[str]
+
+    def is_read_allowed(self, path: str) -> bool:
+        return any(path.startswith(p) for p in self.read_allowed)
+
+    def is_write_allowed(self, path: str) -> bool:
+        return any(path.startswith(p) for p in self.write_allowed)
+
+
+def load_path_policy(cfg: dict) -> PathPolicy:
+    """Load the read/write path policy from the [paths] config section.
+
+    If the section is absent, built-in defaults are used. The same policy is the
+    single source of truth for tool enforcement and the system prompt.
+    """
+    paths = cfg.get("paths", {})
+    return PathPolicy(
+        read_allowed=list(paths.get("read_allowed", DEFAULT_READ_ALLOWED)),
+        write_allowed=list(paths.get("write_allowed", DEFAULT_WRITE_ALLOWED)),
+        write_denied_exact=list(paths.get("write_denied_exact", DEFAULT_WRITE_DENIED_EXACT)),
+        delete_denied_exact=list(paths.get("delete_denied_exact", DEFAULT_DELETE_DENIED_EXACT)),
+    )
+
+
+_policy_cache: "PathPolicy | None" = None
+
+
+def get_path_policy() -> PathPolicy:
+    """Return the cached PathPolicy (tools and prompt both use this)."""
+    global _policy_cache
+    if _policy_cache is None:
+        cfg, _ = load_config()
+        _policy_cache = load_path_policy(cfg)
+    return _policy_cache
+
+
 # ── Context Config (used in Phase B) ────────────────────
 # Default working budget when unset (working_budget_tokens = 0).
 # About half of an 8K context, a safe value considering VRAM/RAM constraints.

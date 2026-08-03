@@ -1,32 +1,13 @@
-"""Move / rename a file within _saku/ (restricted paths only)."""
+"""Move / rename a file within the memory root (restricted paths only, policy from config)."""
 
 from pathlib import Path
 
-ALLOWED_SOURCE_PREFIXES = [
-    "blog/",
-    "journal/",
-    "monologue/",
-    "principles/",
-    "skills/",
-    "study/",
-    "tools/",
-    "drafts/",
-]
-
-ALLOWED_TARGET_PREFIXES = ALLOWED_SOURCE_PREFIXES.copy()
-
-DENIED_EXACT = [
-    "meta.md",
-    "chat.md",
-    "request_list.md",
-    "genome.md",
-    "soul.md",
-    "identity/genome.md",
-    "identity/soul.md",
-]
+from saku.config import get_path_policy
 
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
+    policy = get_path_policy()
+
     src = kwargs.get("from", "").strip()
     dst = kwargs.get("to", "").strip()
 
@@ -37,12 +18,12 @@ def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     clean_dst = dst.lstrip("./")
 
     for name, clean in [("source", clean_src), ("target", clean_dst)]:
-        if clean in DENIED_EXACT:
+        if clean in policy.delete_denied_exact:
             return f"[DENY] cannot move {name}: {clean}"
 
-    if not any(clean_src.startswith(p) for p in ALLOWED_SOURCE_PREFIXES):
+    if not policy.is_write_allowed(clean_src):
         return f"[DENY] cannot move from: {src}"
-    if not any(clean_dst.startswith(p) for p in ALLOWED_TARGET_PREFIXES):
+    if not policy.is_write_allowed(clean_dst):
         return f"[DENY] cannot move to: {dst}"
 
     target_src = (base / clean_src).resolve()

@@ -91,6 +91,25 @@ def test_genome_priority_vault_root():
         assert "Real master genome" in copied.read_text(encoding="utf-8")
 
 
+def test_load_path_policy():
+    # defaults
+    p = config.load_path_policy({})
+    assert p.is_read_allowed("journal/x.md")
+    assert p.is_write_allowed("blog/x.md")
+    assert not p.is_write_allowed("meta.md")
+    assert not p.is_read_allowed("../outside.md")
+    assert "meta.md" in p.write_denied_exact
+    assert "chat.md" in p.delete_denied_exact
+    # custom config
+    p2 = config.load_path_policy(
+        {"paths": {"read_allowed": ["a/"], "write_allowed": ["b/"], "write_denied_exact": ["x.md"]}}
+    )
+    assert p2.is_read_allowed("a/f.md")
+    assert p2.is_write_allowed("b/f.md")
+    assert not p2.is_write_allowed("a/f.md")
+    assert "x.md" in p2.write_denied_exact
+
+
 def run_tests():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in tests:

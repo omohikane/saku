@@ -9,6 +9,9 @@ from pathlib import Path
 
 CODE_ROOT = Path(__file__).parent
 sys.path.append(str(CODE_ROOT))
+_REPO_ROOT = CODE_ROOT.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 import saku_core as agent
 from system_tools import read_file, list_dir, write_file, search_notes, append_file, delete_file, move_file, grep_code

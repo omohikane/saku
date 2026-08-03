@@ -1,35 +1,24 @@
-"""Write a file within _saku/ (restricted paths only)."""
+"""Write a file within the memory root (restricted paths only, policy from config)."""
 
 from pathlib import Path
 
-ALLOWED_PREFIXES = [
-    "blog/",
-    "monologue/",
-    "principles/",
-    "skills/",
-    "tools/",
-    "chat.md",
-    "study/",
-    "request_list.md",
-    "journal/",
-]
-
-DENIED_EXACT = ["meta.md"]
+from saku.config import get_path_policy
 
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
+    policy = get_path_policy()
+
     if not path:
         return "[ERROR] path is empty"
     if not body.strip():
         return "[ERROR] content is empty"
 
-    if path in DENIED_EXACT:
+    if path in policy.write_denied_exact:
         return f"[DENY] {path} cannot be overwritten with WRITE_FILE. Use APPEND_FILE to add entries."
 
-    if not any(path.startswith(p) for p in ALLOWED_PREFIXES):
+    if not policy.is_write_allowed(path):
         return f"[DENY] cannot write to: {path}"
 
-    # tools/ now writes to base/tools/ (= SAKU's user tools), not src/system_tools/
     target = (base / path).resolve()
     if not target.is_relative_to(base.resolve()):
         return "[DENY] scope outside memory directory"

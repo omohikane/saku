@@ -69,6 +69,17 @@ root = "memory"
 
 # メモリ構造の初期化: `saku setup [path]` を実行するとこのrootに標準構造を作ります。
 
+# [paths] - 朔が読み書きできる場所の許可リスト（メモリルート基準の相対パス）
+# 省略時は下記の既定値が使われます。ツールの強制とシステムプロンプトの両方に
+# この設定が単一の情報源として使われます。
+# read_allowed = ["blog/", "journal/", "monologue/", "principles/", "skills/",
+#                 "identity/", "children/", "genome.md", "meta.md", "tools/",
+#                 "src/", "state/", "study/", "chat.md", "request_list.md", "wiki/"]
+# write_allowed = ["blog/", "monologue/", "principles/", "skills/", "tools/",
+#                  "chat.md", "study/", "journal/", "request_list.md", "wiki/"]
+# write_denied_exact = ["meta.md"]          # WRITE_FILE で上書き不可
+# delete_denied_exact = ["meta.md", "chat.md", "request_list.md", "genome.md", "soul.md"]
+
 [agent]
 max_history_messages = 30
 

@@ -1,4 +1,4 @@
-"""Append content to a file within _saku/ (restricted paths only).
+"""Append content to a file within the memory root (restricted paths only, policy from config).
 
 Supports optional heading parameter: when specified, content is inserted
 directly after the matching ## heading line, before the next ## or ### heading.
@@ -7,21 +7,12 @@ directly after the matching ## heading line, before the next ## or ### heading.
 import re
 from pathlib import Path
 
-ALLOWED_PREFIXES = [
-    "blog/",
-    "monologue/",
-    "principles/",
-    "skills/",
-    "study/",
-    "tools/",
-    "meta.md",
-    "chat.md",
-    "request_list.md",
-    "journal/",
-]
+from saku.config import get_path_policy
 
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
+    policy = get_path_policy()
+
     if not path:
         return "[ERROR] path is empty"
     if not body.strip():
@@ -32,7 +23,8 @@ def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     if path == "meta.md" and not heading:
         return "[ERROR] meta.md requires heading= parameter to specify which ## section to append to"
 
-    if not any(path.startswith(p) for p in ALLOWED_PREFIXES):
+    # meta.md is append-only (not in write_allowed, but APPEND_FILE may target it)
+    if not (policy.is_write_allowed(path) or path == "meta.md"):
         return f"[DENY] cannot append to: {path}"
 
     target = (base / path).resolve()
