@@ -163,7 +163,7 @@ memory/
 | B-4 | チャネル抽象化（`saku/channels/`・chatmd分離） | 後回し（Discordをやる時に） |
 | C-1 | ポリグロットツール | 保留（必要になるまで。ローカルLLM前提ならPythonで十分の可能性） |
 | C-2 | MCPクライアント（外部サーバ接続・`tools/list`動的発見・`[[TOOL]]`ディスパッチ） | ✅ 完了 |
-| C-3 | MCPサーバ | 未着手 |
+| C-3 | MCPサーバ（SAKUのメモリ/ツールを公開・Bearerトークン認証・PathPolicy scope） | ✅ 完了 |
 | D-1 | `MEMORY.md` 導入 + `dreaming.py`（journal/monologue→重要度→昇格） | ✅ 完了 |
 | D-2 | `wiki/` 自己整理知識ベース（ノート作成・リンク・インデックス） | ✅ 完了 |
 | D-3 | 子エージェント（`children/`・`SPAWN_CHILD`/`DELEGATE`） | 未着手 |
