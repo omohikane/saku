@@ -329,6 +329,7 @@ _Note: Detailed documentation files are currently written in Japanese. Please us
 
 - [docs/SETUP.md](docs/SETUP.md) — Detailed setup instructions
 - [docs/DEPLOY.md](docs/DEPLOY.md) — Deployment (systemd, dedicated VM)
+- [docs/CONSIDERATIONS.md](docs/CONSIDERATIONS.md) — Open design questions (検討リスト)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — System architecture & data flow
 - [docs/TOOLS.md](docs/TOOLS.md) — Tool expansion guide
 - [docs/DAEMON.md](docs/DAEMON.md) — Daemon lifecycle & events

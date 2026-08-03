@@ -343,6 +343,7 @@ input here
 
 - [docs/SETUP.md](docs/SETUP.md) — 詳細なセットアップ手順
 - [docs/DEPLOY.md](docs/DEPLOY.md) — デプロイ（systemd・専用VM）
+- [docs/CONSIDERATIONS.md](docs/CONSIDERATIONS.md) — 検討中の設計課題（検討リスト）
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 構成・データフロー
 - [docs/TOOLS.md](docs/TOOLS.md) — ツール拡張ガイド
 - [docs/DAEMON.md](docs/DAEMON.md) — daemon動作の詳細
