@@ -161,7 +161,9 @@ memory/
 | C-1 | ポリグロットツール | 保留（必要になるまで。ローカルLLM前提ならPythonで十分の可能性） |
 | C-2 | MCPクライアント | 未着手（ホーム連携の土台） |
 | C-3 | MCPサーバ | 未着手 |
-| D | 子エージェント・MEMORY.md/wiki・dreaming | 未着手 |
+| D-1 | `MEMORY.md` 導入 + `dreaming.py`（journal/monologue→重要度→昇格） | ✅ 完了 |
+| D-2 | `wiki/` 自己整理知識ベース（ノート作成・リンク・インデックス） | ✅ 完了 |
+| D-3 | 子エージェント（`children/`・`SPAWN_CHILD`/`DELEGATE`） | 未着手 |
 | E | ホームNOC/SOC | 未着手 |
 
 ## 優先順位（見直し版・2026-08）
@@ -169,12 +171,13 @@ memory/
 実運用でコンテキスト肥大（principles 91KB）が発生し、現状の文字数上限は対症療法である
 ことが判明した。そのため「能力強化」より先に「記憶の整理・再配置」を優先する。
 
-1. **D-1 記憶整理**: `MEMORY.md` 導入 + `dreaming.py`（journal/monologue → 重要度スコア → 昇格）← コンテキスト肥大の根本対策
-2. **D-2 知識ベース**: `wiki/`（Zettelkasten式・自己整理・リンク更新）
-3. **C-2 MCPクライアント**: 外部サーバ接続（ホーム連携・Phase Eの前提）
-4. **C-3 MCPサーバ**: トークン+scope認可で公開
-5. **B-4 チャネル抽象化**: Discord等の追加チャネルが必要になった時に
-6. **C-1 ポリグロット**: 保留
+1. ~~**D-1 記憶整理**: `MEMORY.md` + `dreaming.py`~~ ✅ 完了
+2. ~~**D-2 知識ベース**: `wiki/`（Zettelkasten式・リンク更新）~~ ✅ 完了
+3. **D-3 子エージェント**: `children/`・`SPAWN_CHILD`/`DELEGATE`
+4. **C-2 MCPクライアント**: 外部サーバ接続（ホーム連携・Phase Eの前提）
+5. **C-3 MCPサーバ**: トークン+scope認可で公開
+6. **B-4 チャネル抽象化**: Discord等の追加チャネルが必要になった時に
+7. **C-1 ポリグロット**: 保留
 
 Web UIは依存ゼロ（http.server + SSE）。詳細な経緯はコミットログを参照。
 
