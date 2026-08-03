@@ -155,6 +155,7 @@ memory/
 | Phase | 内容 | 状態 |
 |---|---|---|
 | A | `saku/` パッケージ化・`config.py`・`llm.py` per-call化 | ✅ 完了 |
+| A-2 | レガシー `src/` を `saku/` へ統合（core/daemon/reflection/tools）・`tests/` 化 | ✅ 完了 |
 | B-1 | `agent_loop.py` 共通化・`context.py`（予算/pruning/コンパクション）・`transport.py`・`thinking.py` | ✅ 完了 |
 | B-2 | プロンプト固定prefix/可変suffix分離（静的キャッシュ） | ✅ 完了 |
 | B-3 | Web UI（stdlib・SSEストリーミング）＋daemonのproactive→UI配信 | ✅ 完了 |
