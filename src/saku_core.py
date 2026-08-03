@@ -313,6 +313,23 @@ def _build_static_sections() -> str:
                 "status\n"
                 "[[END]]\n"
                 "\n"
+                "To create or update a wiki note (self-organized knowledge base, 1 concept per note):\n"
+                '[[WIKI title="予測符号化" tags="認知科学" links="[[自由エネルギー原理]]"]]\n'
+                "note content here\n"
+                "[[END]]\n"
+                "\n"
+                "To add a link to an existing wiki note:\n"
+                '[[WIKI op="link" title="予測符号化" link="[[自由エネルギー原理]]"]]\n'
+                "[[END]]\n"
+                "\n"
+                "To regenerate the wiki index (map of content):\n"
+                '[[WIKI op="index"]]\n'
+                "[[END]]\n"
+                "\n"
+                "WIKI rules:\n"
+                "- notes live in wiki/ (one concept per note), linked via [[links]]\n"
+                "- after creating/updating notes, run op=\"index\" to refresh the index\n"
+                "\n"
                 "GIT rules:\n"
                 "- allowed: status, diff, add, commit, log, branch\n"
                 "- push, pull, fetch, reset, checkout 等は禁止\n"
