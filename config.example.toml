@@ -74,7 +74,7 @@ root = "memory"
 # この設定が単一の情報源として使われます。
 # read_allowed = ["blog/", "journal/", "monologue/", "principles/", "skills/",
 #                 "identity/", "children/", "genome.md", "meta.md", "MEMORY.md", "tools/",
-#                 "src/", "state/", "study/", "chat.md", "request_list.md", "wiki/"]
+#                 "saku/", "state/", "study/", "chat.md", "request_list.md", "wiki/"]
 # write_allowed = ["blog/", "monologue/", "principles/", "skills/", "tools/",
 #                  "chat.md", "study/", "journal/", "request_list.md", "wiki/", "children/"]
 # write_denied_exact = ["meta.md"]          # WRITE_FILE で上書き不可

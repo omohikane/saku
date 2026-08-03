@@ -9,8 +9,8 @@ _TIMEOUT = 30
 
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
-    test_dir = Path(__file__).resolve().parent.parent
-    test_file = test_dir / "test_saku.py"
+    saku_dir = Path(__file__).resolve().parent.parent
+    test_file = saku_dir.parent / "tests" / "test_saku.py"
 
     if not test_file.exists():
         return f"[ERROR] test file not found: {test_file}"
@@ -19,7 +19,7 @@ def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     try:
         proc = subprocess.run(
             [sys.executable, str(test_file)],
-            cwd=str(test_dir),
+            cwd=str(test_file.parent),
             capture_output=True,
             text=True,
             timeout=_TIMEOUT,

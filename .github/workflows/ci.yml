@@ -27,7 +27,7 @@ jobs:
 
       - name: Run test suite
         run: |
-          cd src
+          cd tests
           for t in test_*.py; do
             # test_mcp_server.py is a stdio server fixture (spawned by test_mcp.py), not a test
             [ "$t" = "test_mcp_server.py" ] && continue

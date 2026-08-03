@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 # ── Config ──────────────────────────────────────────────
-CODE_ROOT = Path(__file__).parent   # src/ or _saku/
+CODE_ROOT = Path(__file__).resolve().parent   # saku/ (code package)
 
 # Ensure repo root (parent of src/) is on path so the `saku` package is importable.
 _REPO_ROOT = CODE_ROOT.parent
@@ -298,7 +298,7 @@ def _build_static_sections() -> str:
                 "[[END]]\n"
                 "\n"
                 "DELETE_FILE rules:\n"
-                "- `meta.md`, `chat.md`, `request_list.md`, `src/system_tools/*` は削除できません\n"
+                "- `meta.md`, `chat.md`, `request_list.md`, `saku/tools/*` は削除できません\n"
                 "\n"
                 "To fetch and read a full web page:\n"
                 '[[FETCH_URL url="https://example.com/article"]]\n'
@@ -312,7 +312,7 @@ def _build_static_sections() -> str:
                 '[[MOVE_FILE from="study/old.py" to="study/archive/old.py"]]\n'
                 "[[END]]\n"
                 "\n"
-                "To search Python source code in system_tools/ and tools/:\n"
+                "To search Python source code in saku/tools/ and tools/:\n"
                 "[[GREP_CODE]]\n"
                 "def run\n"
                 "[[END]]\n"

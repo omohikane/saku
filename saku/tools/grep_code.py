@@ -1,4 +1,4 @@
-"""Search Python source files in system_tools/ and user tools/."""
+"""Search Python source files in saku/tools/ and user tools/."""
 
 import os
 import re as re_module
@@ -22,11 +22,11 @@ def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     except re_module.error as e:
         return f"[ERROR] invalid regex: {e}"
 
-    code_root = Path(__file__).resolve().parent.parent  # _saku/src/
-    vault_root = code_root.parent                       # _saku/
+    code_root = Path(__file__).resolve().parent.parent  # saku/
+    repo_root = code_root.parent                         # repo root
 
     search_targets = [
-        (code_root / "system_tools", vault_root),
+        (code_root / "tools", repo_root),
         (base / "tools", base),
     ]
 

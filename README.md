@@ -113,6 +113,9 @@ identity/
     saku.md            # Reference implementation (anonymized)
 
 saku/                  # Core package (Python, uv-managed)
+  core.py              # Agent core engine (LLM calls, prompt builder, journal)
+  daemon.py            # Background scheduler (autonomous ticks, reflection, dreaming)
+  reflection.py        # Nightly reflection (consolidates principles, updates meta.md)
   cli.py               # CLI entry: chat / daemon / ui / setup / dream / mcp
   config.py            # Config loading + validation (paths, llm, channels, mcp)
   llm.py               # LLM client (per-call settings, multi-instance)
@@ -127,12 +130,7 @@ saku/                  # Core package (Python, uv-managed)
   mcp.py               # MCP client (external server tools)
   mcp_server.py        # MCP server (expose SAKU memory, Bearer-token auth)
   setup.py             # Initialize the memory/vault structure
-
-src/                   # Legacy modules (being migrated into saku/)
-  saku_core.py         # Agent core engine (legacy entry point)
-  daemon.py            # Background scheduler (autonomous ticks, reflection, dreaming)
-  reflect.py           # Nightly reflection script (updates meta.md)
-  system_tools/        # System-level tool plugins (read-only for SAKU)
+  tools/               # Built-in tool plugins (read-only for SAKU)
 
 sample/                # Template files to copy when setting up a vault
   identity/
@@ -260,10 +258,10 @@ There are two layers of tool extensibility:
 
 ### System Tools (built-in, read-only for SAKU)
 
-Drop a Python script into `src/system_tools/` to add a new capability visible to SAKU:
+Drop a Python script into `saku/tools/` to add a new capability visible to SAKU:
 
 ```python
-# src/system_tools/my_tool.py
+# saku/tools/my_tool.py
 from pathlib import Path
 
 def run(base: Path, path: str, body: str = "") -> str:

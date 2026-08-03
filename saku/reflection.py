@@ -11,18 +11,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Ensure CODE_ROOT is in path so we can import saku_core
-CODE_ROOT = Path(__file__).parent
-sys.path.append(str(CODE_ROOT))
-
-# Ensure repo root (parent of src/) is on path so the `saku` package is importable.
-_REPO_ROOT = CODE_ROOT.parent
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
+from saku import core as agent
 from saku.agent_loop import run_agent_loop as _run_agent_loop
-
-import saku_core as agent
 
 # Resolve SAKU_ROOT from agent config
 SAKU_ROOT = agent.SAKU_ROOT

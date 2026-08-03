@@ -10,7 +10,6 @@ import json
 import sys
 import threading
 import time
-import types
 import urllib.request
 from pathlib import Path
 
@@ -111,16 +110,17 @@ def test_proactive():
 
 def test_daemon_thread_spawns():
     """Verify that daemon.main() is started in a thread with auto_daemon enabled (no LLM)."""
-    fake = types.ModuleType("daemon")
+    import saku.daemon as daemon_mod
+
     calls = []
-    fake.main = lambda: calls.append("main")
-    sys.modules["daemon"] = fake
+    original = daemon_mod.main
+    daemon_mod.main = lambda: calls.append("main")
     try:
         ui._start_daemon_thread()
         time.sleep(0.3)
         assert "main" in calls
     finally:
-        sys.modules.pop("daemon", None)
+        daemon_mod.main = original
 
 
 def run_tests():

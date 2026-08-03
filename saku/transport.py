@@ -14,7 +14,7 @@ from pathlib import Path
 def _tool_candidates(name_lower: str, memory_root: Path, code_root: Path) -> list[Path]:
     return [
         memory_root / "tools" / f"{name_lower}.py",  # SAKU's own tools
-        code_root / "system_tools" / f"{name_lower}.py",  # system tools
+        code_root / "tools" / f"{name_lower}.py",  # built-in tools (saku/tools)
     ]
 
 
@@ -52,7 +52,7 @@ def exec_tools(raw: str, memory_root: Path, code_root: Path) -> list[str]:
     """Parse and execute [[TOOL ...]] blocks.
 
     Also validates that valid tool start tags are properly closed with [[END]].
-    Tool search order: memory/tools/ → system_tools/ → MCP tools (external servers)
+    Tool search order: memory/tools/ → saku/tools/ → MCP tools (external servers)
     """
     results: list[str] = []
 

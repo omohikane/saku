@@ -14,14 +14,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-_CODE_ROOT = Path(__file__).resolve().parent.parent / "src"
-if str(_CODE_ROOT) not in sys.path:
-    sys.path.insert(0, str(_CODE_ROOT))
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-import saku_core as agent
+from saku import core as agent
 from saku.agent_loop import run_agent_loop
 
 # category -> MEMORY.md ## section heading

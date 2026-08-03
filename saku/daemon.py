@@ -22,21 +22,12 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-CODE_ROOT = Path(__file__).parent
-sys.path.append(str(CODE_ROOT))
-
-# Ensure repo root (parent of src/) is on path so the `saku` package is importable.
-_REPO_ROOT = CODE_ROOT.parent
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from saku.agent_loop import run_agent_loop as _run_agent_loop
+from saku import core as agent
 from saku import dreaming
+from saku import reflection
+from saku.agent_loop import run_agent_loop as _run_agent_loop
 
-import saku_core as agent
-import reflect
-
-# ── Config (from config.toml via saku_core) ───────────────────────
+# ── Config (from config.toml via core) ───────────────────────
 MEMORY_ROOT = agent.MEMORY_ROOT
 _dcfg = agent._cfg.get("daemon", {})
 
@@ -428,7 +419,7 @@ def check_and_run_midnight_reflection() -> None:
         
         try:
             # Run reflect logic
-            reflect.run_reflection(yesterday)
+            reflection.run_reflection(yesterday)
             
             # Record run date
             state["last_reflection_date"] = today_str
@@ -531,7 +522,6 @@ def save_processed_state(state: dict) -> None:
 def check_inbox_and_process() -> None:
     # The inbox location is configurable via [memory] inbox_dir (the layout varies
     # per person). Falls back gracefully if not present.
-    vault_root = MEMORY_ROOT.parent
     inbox_dir = agent.saku_config.resolve_inbox_dir(agent._cfg, MEMORY_ROOT, agent._config_base)
 
     if not inbox_dir.is_dir():
@@ -541,7 +531,7 @@ def check_inbox_and_process() -> None:
     new_state = dict(state)
 
     for p in inbox_dir.glob("*.md"):
-        rel_inbox_path = str(p.relative_to(vault_root))
+        rel_inbox_path = str(p.relative_to(inbox_dir))
         mtime = p.stat().st_mtime
 
         if rel_inbox_path not in state or mtime > state[rel_inbox_path]:

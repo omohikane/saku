@@ -13,8 +13,8 @@ def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     if path and not get_path_policy().is_read_allowed(path):
         return f"[DENY] cannot list: {path}"
 
-    if path.startswith("src/"):
-        vault = _CODE_ROOT.parent
+    if path.startswith("saku/"):
+        vault = _CODE_ROOT.parent  # repo root
         target = (vault / path).resolve() if path else vault.resolve()
         if not target.is_relative_to(vault.resolve()):
             return "[DENY] scope outside vault"

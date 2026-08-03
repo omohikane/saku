@@ -153,7 +153,7 @@ def load_llm_instance(cfg: dict, name: str = "main") -> LlmConfig:
 DEFAULT_READ_ALLOWED = [
     "blog/", "journal/", "monologue/", "principles/", "skills/",
     "identity/", "children/", "genome.md", "meta.md", "MEMORY.md", "tools/",
-    "src/", "state/", "study/", "chat.md", "request_list.md", "wiki/",
+    "saku/", "state/", "study/", "chat.md", "request_list.md", "wiki/",
 ]
 DEFAULT_WRITE_ALLOWED = [
     "blog/", "monologue/", "principles/", "skills/", "tools/",
