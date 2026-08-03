@@ -213,6 +213,15 @@ def _build_static_sections() -> str:
     _write_allowed = ", ".join(_policy.write_allowed)
     _write_denied = ", ".join(_policy.write_denied_exact)
 
+    # MCP tools (external servers) — only if configured; empty otherwise.
+    _mcp_desc = ""
+    try:
+        from saku.mcp import get_tool_descriptions
+
+        _mcp_desc = get_tool_descriptions()
+    except Exception:
+        _mcp_desc = ""
+
     sections = [
         ("# SAKU Core", soul),
         ("# Identity", genome),
@@ -451,6 +460,14 @@ def _build_static_sections() -> str:
             ),
         )
     )
+
+    if _mcp_desc:
+        sections.append(
+            (
+                "# MCP Tools",
+                "以下は外部MCPサーバから取得したツールです。通常のツールと同じく [[ツール名]] ブロックで呼び出せます。\n" + _mcp_desc,
+            )
+        )
 
     return "\n\n".join(f"{title}\n{body}" for title, body in sections if body)
 

@@ -107,14 +107,15 @@ auto_initiate_cooldown_seconds = 28800 # SAKU self-initiates every 8 hours
 # 問いかけ・アラートの送信先
 # proactive = ["webui"]
 
-# [mcp] - MCP サーバ設定（Phase C で実装。定義のみ）
-# サーバ公開時の認可トークン（外部から SAKU を操作するための API トークン）
+# [mcp] - MCP サーバ設定
+# サーバ公開時の認可トークン（外部から SAKU を操作するための API トークン。Phase C サーバ側）
 # [mcp.server]
 # enable = false
 # token = "change-me"
 # bind = "127.0.0.1"
 # port = 8765
-# 接続する外部 MCP サーバ（クライアント方向）
+# 接続する外部 MCP サーバ（クライアント方向・実装済み）
+# 各サーバのツールは tools/list で自動発見され、[[ツール名]] ブロックで呼び出せる
 # [mcp.servers.homeassistant]
 # url = "http://127.0.0.1:8766/mcp"
 
