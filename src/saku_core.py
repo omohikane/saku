@@ -217,7 +217,7 @@ def _build_static_sections() -> str:
                 '[[LIST_DIR path="journal/"]]\n'
                 "\n"
                 "[[END]]\n"
-                'path="" or omitted = _saku/ root, use relative paths like "../00_Inbox/" for other Vault folders.\n'
+                'path="" or omitted = メモリルート（memory root）。他Vaultフォルダは "../" の相対パスで指定する。\n'
                 "\n"
                 "To read a file:\n"
                 '[[READ_FILE path="journal/2026-06-17.md"]]\n'
@@ -317,10 +317,10 @@ def _build_static_sections() -> str:
                 "- private/localhostへのアクセスはブロックされます\n"
                 "\n"
                 "## Tool Rules\n"
-                "- path is relative to _saku/\n"
+                "- path is relative to the memory root\n"
                 "- Write allowed: blog/, monologue/, principles/, skills/, tools/, chat.md, study/, journal/, request_list.md\n"
                 "- Write denied: meta.md, genome.md, src/, identity/\n"
-                "- Read/List allowed: Vault全体（_saku/ 内および `../` を経由した他ディレクトリも読取可）\n"
+                "- Read/List allowed: Vault全体（メモリルート内および `../` を経由した他ディレクトリも読取可）\n"
                 "- Do not assume success — wait for [OK] or file content\n"
                 "- Tool format must be exact. Do not improvise.\n"
                 "- When asked to find files, use SEARCH_NOTES or LIST_DIR first, then READ_FILE\n"
@@ -333,7 +333,7 @@ def _build_static_sections() -> str:
                 "## Cannot Do\n"
                 "- Access the internet (except via WEB_SEARCH tool)\n"
                 "- Execute shell commands directly (except via EXECUTE_CODE tool which runs python)\n"
-                "- Write outside _saku/\n"
+                "- Write outside the memory root\n"
             ),
         )
     )
