@@ -62,6 +62,11 @@ model = "claude-3-5-sonnet-20240620"
 #   root = "${SAKU_MEMORY_ROOT}"
 root = "memory"
 
+# Obsidian inbox (00_Inbox) の場所。人によって構成が異なるため設定化しています。
+# 既定は memory の1つ上の 00_Inbox。絶対パス / ${VAR} / 相対（config基準）可。
+#   inbox_dir = "/path/to/vault/00_Inbox"
+#   inbox_dir = "${VAULT_ROOT}/00_Inbox"
+
 # メモリ構造の初期化: `saku setup [path]` を実行するとこのrootに標準構造を作ります。
 
 [agent]

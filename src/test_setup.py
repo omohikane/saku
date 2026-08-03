@@ -30,6 +30,23 @@ def test_resolve_memory_root_env():
     assert str(config.resolve_memory_root(cfg, Path("/tmp/base"))) == "/tmp/vault/memory"
 
 
+def test_resolve_inbox_dir():
+    # default: memory_root.parent/00_Inbox
+    mem = Path("/vault/_saku/memory")
+    cfg_default = {}
+    assert str(config.resolve_inbox_dir(cfg_default, mem, Path("/base"))) == "/vault/_saku/00_Inbox"
+    # configured absolute
+    cfg_abs = {"memory": {"inbox_dir": "/vault/00_Inbox"}}
+    assert str(config.resolve_inbox_dir(cfg_abs, mem, Path("/base"))) == "/vault/00_Inbox"
+    # configured relative to config base
+    cfg_rel = {"memory": {"inbox_dir": "relative_inbox"}}
+    assert str(config.resolve_inbox_dir(cfg_rel, mem, Path("/base"))) == "/base/relative_inbox"
+    # configured env var
+    os.environ["SAKU_INBOX"] = "/vault/00_Inbox"
+    cfg_env = {"memory": {"inbox_dir": "${SAKU_INBOX}"}}
+    assert str(config.resolve_inbox_dir(cfg_env, mem, Path("/base"))) == "/vault/00_Inbox"
+
+
 def test_init_memory():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "memory"

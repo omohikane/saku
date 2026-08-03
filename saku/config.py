@@ -54,6 +54,23 @@ def resolve_memory_root(cfg: dict, config_base: Path) -> Path:
     return (config_base / rel).resolve()
 
 
+def resolve_inbox_dir(cfg: dict, memory_root: Path, config_base: Path) -> Path:
+    """Resolve the Obsidian inbox directory (00_Inbox).
+
+    The inbox layout varies per person, so it is configurable via ``[memory] inbox_dir``
+    (absolute path or ``${VAR}``; relative paths are resolved against the config base).
+    Defaults to ``memory_root.parent / "00_Inbox"`` for backward compatibility.
+    """
+    inbox = cfg.get("memory", {}).get("inbox_dir", "")
+    if not inbox:
+        return (memory_root.parent / "00_Inbox").resolve()
+    inbox = expand_env(inbox)
+    p = Path(inbox)
+    if p.is_absolute():
+        return p.resolve()
+    return (config_base / p).resolve()
+
+
 # ── LLM Config ──────────────────────────────────────────
 @dataclass
 class LlmConfig:

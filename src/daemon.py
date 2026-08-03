@@ -508,10 +508,10 @@ def save_processed_state(state: dict) -> None:
     STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 def check_inbox_and_process() -> None:
-    # Inbox is expected one level above the memory root (Obsidian vault usage)
-    # Falls back gracefully if not present.
+    # The inbox location is configurable via [memory] inbox_dir (the layout varies
+    # per person). Falls back gracefully if not present.
     vault_root = MEMORY_ROOT.parent
-    inbox_dir = vault_root / "00_Inbox"
+    inbox_dir = agent.saku_config.resolve_inbox_dir(agent._cfg, MEMORY_ROOT, agent._config_base)
 
     if not inbox_dir.is_dir():
         return
