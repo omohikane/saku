@@ -188,6 +188,9 @@ def test_strip_tool_blocks():
     assert strip_tool_blocks('[[WRITE_FILE path="a.md"]]\nbody\n[[END]]\n記録') == "記録"
     assert strip_tool_blocks("[[LIST_DIR]]\n[[END]]") == ""
     assert strip_tool_blocks("plain text") == "plain text"
+    assert strip_tool_blocks('[[READ_FILE path="meta.md"]]\n\nこんにちは') == "こんにちは"
+    assert strip_tool_blocks("[[LIST_DIR]]\n続き") == "続き"
+    assert strip_tool_blocks('[[APPEND_FILE path="a.md" heading="次にやりたいこと"]]\n- item\n[[END]]\n完了') == "完了"
 
 
 class _FakeResp:
