@@ -10,10 +10,70 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 ### Planned
 
 - Memory search abstraction layer (SQLite / Vector DB)
-- Web UI for conversation (replacing `chat.md`)
-- Multi-agent coordination
-- Long-term memory compression
+- Community tool registry / marketplace
+- Home device management (Matter / Home Assistant) via MCP
+- Polyglot tool plugins (any language)
 - Detailed growth examples in `examples/growth/`
+
+---
+
+## [0.5.0] - 2026-08-03 — Redesign: home-living, self-growing companion
+
+🌒 Half Moon — the redesign that turns SAKU into a local, private, self-growing
+companion for the home.
+
+> Note: 0.2.0–0.4.0 were internal development versions during the redesign and
+> were not published. This release jumps 0.1.0 → 0.5.0 to match the internal version.
+
+### Added
+
+#### Core
+
+- `saku/` package restructure (uv-managed, per-call LLM config, multi-instance)
+- Shared agent loop (`agent_loop.py`) used by core/daemon/reflect/UI/children
+- Context management: working budget, tool-result pruning, auto-compaction
+- Prompt split into cached static prefix + volatile growth suffix (cache reuse)
+
+#### Interfaces
+
+- Web UI (stdlib-only, SSE streaming) — `saku ui`
+- CLI entry points: `saku chat` / `daemon` / `ui` / `setup` / `dream` / `mcp`
+- `saku setup` initializes the memory/vault structure
+
+#### Growth & Memory
+
+- `MEMORY.md` long-term memory + `dreaming.py` (journal/monologue → durable memory)
+- `wiki/` self-organized knowledge base (Zettelkasten-style, links, index)
+- `WIKI` tool for note creation / linking / indexing
+- Sub-agent foundation: `SPAWN_CHILD` / `DELEGATE` (children/)
+
+#### MCP
+
+- MCP client (Streamable HTTP + stdio, `tools/list` discovery)
+- MCP server (exposes SAKU memory, Bearer-token auth, PathPolicy scope)
+
+#### Configuration & Vault
+
+- `[paths]` PathPolicy as single source of truth for read/write permissions
+- `[memory] inbox_dir` configurable; `${VAR}` env expansion in config
+- genome.md resolved from the vault (master) with repo fallback
+- Configurable Obsidian inbox location
+
+#### Ops
+
+- CI (GitHub Actions, Python 3.11–3.13)
+- systemd service (`packaging/saku.service`), `docs/DEPLOY.md`
+- 57 tests passing
+
+### Changed
+
+- Runtime now uses a uv venv: `uv run python -m saku.ui`
+- `drafts/` renamed to `blog/`
+
+### Notes
+
+- Status: 🌒 **Half Moon — Alpha**
+- Local-first and private by design (no personal data sent to cloud APIs)
 
 ---
 
@@ -87,4 +147,5 @@ only a name and a soul.
 ---
 
 https://github.com/omohikane/saku/compare/v0.1.0...HEAD
+[0.5.0]: https://github.com/omohikane/saku/releases/tag/v0.5.0
 [0.1.0]: https://github.com/omohikane/saku/releases/tag/v0.1.0
