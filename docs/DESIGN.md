@@ -166,7 +166,7 @@ memory/
 | C-3 | MCPサーバ（SAKUのメモリ/ツールを公開・Bearerトークン認証・PathPolicy scope） | ✅ 完了 |
 | D-1 | `MEMORY.md` 導入 + `dreaming.py`（journal/monologue→重要度→昇格） | ✅ 完了 |
 | D-2 | `wiki/` 自己整理知識ベース（ノート作成・リンク・インデックス） | ✅ 完了 |
-| D-3 | 子エージェント（`children/`・`SPAWN_CHILD`/`DELEGATE`） | 未着手 |
+| D-3 | 子エージェント基盤（`SPAWN_CHILD`/`DELEGATE`・`children/`・委譲深度ガード） | ✅ 完了（インフラ。自律的な生成・活用は段階的に） |
 | E | ホームNOC/SOC | 未着手 |
 
 ## 優先順位（見直し版・2026-08）
