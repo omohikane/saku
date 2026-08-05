@@ -27,8 +27,12 @@ def _make_ctx() -> ContextConfig:
 
 
 def test_estimate_tokens():
-    assert context.estimate_tokens("x" * 30) == 10
+    # ASCII is ~4 chars/token
+    assert context.estimate_tokens("x" * 30) == 8
     assert context.estimate_tokens("") >= 1
+    # Japanese/CJK is ~1 token/char (was drastically underestimated before)
+    assert context.estimate_tokens("日本語" * 10) == 30
+    assert context.estimate_tokens("日本語") == 3
 
 
 def test_trim_old_tool_results():
@@ -82,9 +86,10 @@ def test_exec_tools_unknown_and_fake():
         assert "[ECHO] echo:hello" in res[0], res
         res2 = transport.exec_tools("[[NOPE]]\nx\n[[END]]", root, root)
         assert "unknown tool" in res2[0], res2
-        # unclosed tool
+        # unclosed tool is auto-closed and executed (no "not closed" error loop)
         res3 = transport.exec_tools("[[ECHO]]\nhello\n", root, root)
-        assert any("not closed" in r for r in res3), res3
+        assert "[ECHO] echo:hello" in res3[0], res3
+        assert not any("not closed" in r for r in res3), res3
 
 
 def test_run_agent_loop_no_tools():

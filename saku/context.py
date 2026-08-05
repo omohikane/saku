@@ -9,21 +9,28 @@ decided based on the instance's ``working_budget_tokens``.
 - History compaction when the budget is exceeded
 """
 
+import re
+
 from .config import ContextConfig
 
-
-def estimate_tokens(text: str, chars_per_token: int = 3) -> int:
-    """Approximate token count estimation.
-
-    A simple approximation independent of model and tokenizer. Since Japanese is
-    close to one token per character, ``chars_per_token=3`` provides a safe
-    margin for both Latin-centered and Japanese text.
-    """
-    return max(1, len(text) // chars_per_token)
+# Local LLM tokenizers (llama.cpp-style) consume ~1 token per Japanese/CJK
+# character but share ASCII words across ~4 chars per token. Weighting CJK at
+# full weight prevents underestimating the prompt size, which previously let the
+# context silently overflow far past the server's ``-c`` window (this was the
+# cause of "Context size has been exceeded" after long chats).
+_CJK_RE = re.compile(r"[\u3000-\u9fff\uff00-\uffef]")
+_ASCII_TOKENS_PER_CHAR = 1 / 4  # ~4 ASCII chars per token
 
 
-def total_tokens(history: list[dict], chars_per_token: int = 3) -> int:
-    return sum(estimate_tokens(str(m.get("content", "")), chars_per_token) for m in history)
+def estimate_tokens(text: str) -> int:
+    """Approximate token count, weighting CJK/wide chars at 1 token each."""
+    cjk = len(_CJK_RE.findall(text))
+    ascii_weighted = round((len(text) - cjk) * _ASCII_TOKENS_PER_CHAR)
+    return max(1, cjk + ascii_weighted)
+
+
+def total_tokens(history: list[dict]) -> int:
+    return sum(estimate_tokens(str(m.get("content", ""))) for m in history)
 
 
 def is_tool_result_message(msg: dict) -> bool:
@@ -52,14 +59,14 @@ def trim_old_tool_results(history: list[dict], ctx: ContextConfig) -> list[dict]
     return out
 
 
-def needs_compaction(history: list[dict], budget_tokens: int, ctx: ContextConfig, chars_per_token: int = 3) -> bool:
+def needs_compaction(history: list[dict], budget_tokens: int, ctx: ContextConfig) -> bool:
     """Whether compaction is needed for the working budget."""
     if budget_tokens <= 0:
         return False
-    return total_tokens(history, chars_per_token) > int(budget_tokens * ctx.compaction_trigger)
+    return total_tokens(history) > int(budget_tokens * ctx.compaction_trigger)
 
 
-def truncate_history(history: list[dict], keep_recent_tokens: int, chars_per_token: int = 3) -> tuple[list[dict], int]:
+def truncate_history(history: list[dict], keep_recent_tokens: int) -> tuple[list[dict], int]:
     """Keep the system prompt (index 0) and retain keep_recent_tokens from the tail.
 
     Returns: (new history, dropped character count)
@@ -70,12 +77,11 @@ def truncate_history(history: list[dict], keep_recent_tokens: int, chars_per_tok
     tail = list(history[1:])
 
     kept: list[dict] = []
-    used = 0
-    limit = keep_recent_tokens * chars_per_token
+    used_tokens = 0
     for msg in reversed(tail):
-        used += len(str(msg.get("content", "")))
+        used_tokens += estimate_tokens(str(msg.get("content", "")))
         kept.append(msg)
-        if used >= limit:
+        if used_tokens >= keep_recent_tokens:
             break
     kept.reverse()
 

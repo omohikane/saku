@@ -93,6 +93,7 @@ def exec_tools(raw: str, memory_root: Path, code_root: Path) -> list[str]:
     # Validate unclosed/invalid tool calls
     for start_match in starts:
         name = start_match.group(1)
+        args_str = start_match.group(2)
         name_lower = name.lower()
         candidates = _tool_candidates(name_lower, memory_root, code_root)
         is_known = any(p.exists() for p in candidates)
@@ -109,15 +110,40 @@ def exec_tools(raw: str, memory_root: Path, code_root: Path) -> list[str]:
         start_pos = start_match.start()
         inside_parsed = any(p_start <= start_pos < p_end for p_start, p_end in parsed_ranges)
 
-        if not inside_parsed:
-            has_end = "[[END]]" in raw[start_pos:]
-            if not has_end:
-                results.append(
-                    f"[ERROR] Tool [[{name}]] was not closed with [[END]]. Every tool call block must end with [[END]] on its own line."
-                )
+        if inside_parsed:
+            continue
+
+        has_end = "[[END]]" in raw[start_pos:]
+        if has_end:
+            results.append(
+                f"[ERROR] Tool [[{name}]] has invalid syntax. Ensure a newline after the start tag and before [[END]]. Example:\n[[{name} path=\"...\"]]\ncontent\n[[END]]"
+            )
+            continue
+
+        # The model forgot the closing [[END]] tag. Auto-close it: treat everything
+        # after the start tag (up to the next [[ ) as the body and run the tool.
+        # This prevents the "not closed with [[END]]" error from being fed back into
+        # history, which previously made the model retry the same tool forever.
+        tail = raw[start_match.end():]
+        next_start = tail.find("[[")
+        body = tail[: next_start if next_start != -1 else None].strip()
+
+        tool_file = next((p for p in candidates if p.exists()), None)
+        try:
+            if tool_file is not None:
+                args = dict(re.findall(r'(\w+)="(.*?)"', args_str))
+                path = args.get("path", "")
+                extra_kwargs = {k: v for k, v in args.items() if k != "path"}
+                module = _load_tool(name_lower, tool_file)
+                result = module.run(memory_root, path, body, **extra_kwargs)
             else:
-                results.append(
-                    f"[ERROR] Tool [[{name}]] has invalid syntax. Ensure a newline after the start tag and before [[END]]. Example:\n[[{name} path=\"...\"]]\ncontent\n[[END]]"
-                )
+                mcp_result = _run_mcp_tool(name, args_str, body)
+                if mcp_result is None:
+                    result = f"[ERROR] unknown tool: {name}"
+                else:
+                    result = mcp_result
+            results.append(f"[{name}] {result}")
+        except Exception as e:
+            results.append(f"[{name}] [ERROR] {e}\n{traceback.format_exc()}")
 
     return results

@@ -58,6 +58,7 @@ def run_agent_loop(
     current_visible: list[str] = []
     current_thinking: list[str] = []
     last_raw = ""
+    last_tool_output = ""
     action_taken = False
     turn = 0
 
@@ -107,6 +108,15 @@ def run_agent_loop(
             on_tool_result(tool_output)
         else:
             print(f"\n[tool] {tool_output}", flush=True)
+
+        # Guard against a same-error loop: if the tool output is identical to the
+        # previous turn (e.g. an unknown/unparsable tool the model keeps retrying),
+        # stop instead of repeating the same exchange until max_turns.
+        if tool_output == last_tool_output:
+            if log:
+                log("halting loop: repeated identical tool output")
+            break
+        last_tool_output = tool_output
 
         work.append({"role": "user", "content": f"[system] tool results:\n{tool_output}"})
         turn += 1
