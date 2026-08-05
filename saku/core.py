@@ -197,6 +197,16 @@ def _build_static_sections() -> str:
     _policy = saku_config.get_path_policy()
     _write_allowed = ", ".join(_policy.write_allowed)
     _write_denied = ", ".join(_policy.write_denied_exact)
+    if "meta.md" in _policy.write_denied_exact:
+        _meta_update_rule = (
+            "追記（`[[APPEND_FILE path=\"meta.md\" heading=\"...\"]]`）のみ。`WRITE_FILE` での上書きは禁止。"
+        )
+    else:
+        _meta_update_rule = (
+            "`WRITE_FILE` で上書き可能。編集時は既存の ## 見出し構造（## 現在の状態、## 得意なこと、"
+            "## 苦手なこと、## 最近の出来事、## 次にやりたいこと、## 更新ルール）を尊重し、"
+            "セクションの追加・整理・更新を行ってよい。"
+        )
 
     # MCP tools (external servers) — only if configured; empty otherwise.
     _mcp_desc = ""
@@ -363,7 +373,7 @@ def _build_static_sections() -> str:
                 "- When asked to find files, use SEARCH_NOTES or LIST_DIR first, then READ_FILE\n"
                 "- **ツール呼び出しは1回だけ**: 既に実行したツール呼び出しを繰り返さない。同じファイルを何度も読まない。ツールの結果は `[system] tool results` として返ってくるので、それを基に回答を続けてください。\n"
                 "- **対話中の検索実行**: Ownerとの対話中に、知らない言葉、最新の情報、事実確認が必要な話題が出てきた場合は、単に「知らない」と答えて終わるのではなく、積極的に `WEB_SEARCH` ツールを使用してネット検索を行い、得られた情報をもとに回答してください。\n"
-                f"- **meta.mdの更新**: `meta.md` は{'追記（`[[APPEND_FILE path=\"meta.md\" heading=\"...\"]]`）のみ。`WRITE_FILE` での上書きは禁止。' if 'meta.md' in _policy.write_denied_exact else '`WRITE_FILE` で上書き可能。編集時は既存の ## 見出し構造（## 現在の状態、## 得意なこと、## 苦手なこと、## 最近の出来事、## 次にやりたいこと、## 更新ルール）を尊重し、セクションの追加・整理・更新を行ってよい。'}\n"
+                f"- **meta.mdの更新**: `meta.md` は{_meta_update_rule}\n"
                 "\n"
                 "## Cannot Do\n"
                 "- Access the internet (except via WEB_SEARCH tool)\n"
