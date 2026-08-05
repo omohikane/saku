@@ -1,22 +1,13 @@
 #!/usr/bin/env python3
 """
 SAKU Agent v0.5 — Self-Adapting Knowledge Unit
-Obsidian-integrated local LLM agent with tool support.
+A local, private, self-growing companion AI with tool support.
 
-Prerequisites:
-    pip install requests
+Installation and dependencies are managed via uv (see pyproject.toml / uv.lock):
+    uv venv && uv pip install -e ".[mcp]"
 
-    # Start llama-server (systemd or manual):
-    llama-server \
-        -m ~/models/Qwen3-30B-A3B-Q3_K_M.gguf \
-        -ngl 99 -c 8192 \
-        --host 127.0.0.1 --port 8080
-
-Changelog:
-    v0.5 - LIST_DIR tool, auto-followup after tool execution,
-           fixed exec_tools regex for empty body
-    v0.4 - Tool system (READ_FILE, WRITE_FILE), few-shot examples
-    v0.3 - Thinking filter, journal fixes, capability constraints
+The LLM endpoint is configured in config.toml ([llm] / [llm.profiles.*]) and can
+point to a local server (llama-server, LiteLLM, ...) or a cloud OpenAI-compatible API.
 """
 
 import sys
@@ -46,27 +37,21 @@ MEMORY_ROOT = saku_config.resolve_memory_root(_cfg, _config_base)
 
 SAKU_ROOT = MEMORY_ROOT  # alias kept for backward-compat with tools
 
-# LLM settings are passed per-call. The globals are kept for compatibility with existing tools/modules.
-def _load_llm_config() -> tuple[str, str, str]:
-    """Load LLM config from active profile or fallback to legacy settings."""
-    llm = saku_config.load_active_llm(_cfg)
-    return llm.api_url, llm.api_key, llm.model
-
+# LLM settings are passed per-call via `_current_llm` (an LlmConfig).
 _current_llm = saku_config.load_active_llm(_cfg)
-API_URL, API_KEY, MODEL_NAME = _current_llm.api_url, _current_llm.api_key, _current_llm.model
+
 
 def switch_llm_profile(profile_name: str) -> str:
-    """Switch LLM profile dynamically and update global variables."""
-    global API_URL, API_KEY, MODEL_NAME, _current_llm
+    """Switch the active LLM profile (used by the SWITCH_PROFILE tool)."""
+    global _current_llm
 
     llm = saku_config.load_profile(_cfg, profile_name)
     if llm is None:
         profiles = _cfg.get("llm", {}).get("profiles", {})
         return f"[ERROR] Profile '{profile_name}' not found. Available: {', '.join(profiles.keys())}"
 
-    API_URL, API_KEY, MODEL_NAME = llm.api_url, llm.api_key, llm.model
     _current_llm = llm
-    return f"[OK] Switched to profile: {profile_name} (API: {API_URL}, Model: {MODEL_NAME})"
+    return f"[OK] Switched to profile: {profile_name} (API: {llm.api_url}, Model: {llm.model})"
 
 MAX_GENOME_CHARS = 4000
 MAX_META_CHARS = 4000
@@ -254,7 +239,7 @@ def _build_static_sections() -> str:
                 "- new thought item\n"
                 "[[END]]\n"
                 "\n"
-                "To append content under a specific ## heading section (meta.md requires this):\n"
+                "To append content under a specific ## heading section:\n"
                 '[[APPEND_FILE path="meta.md" heading="最近の出来事"]]\n'
                 "- 2026-06-18: chatで話したことの要約\n"
                 "[[END]]\n"
@@ -378,9 +363,7 @@ def _build_static_sections() -> str:
                 "- When asked to find files, use SEARCH_NOTES or LIST_DIR first, then READ_FILE\n"
                 "- **ツール呼び出しは1回だけ**: 既に実行したツール呼び出しを繰り返さない。同じファイルを何度も読まない。ツールの結果は `[system] tool results` として返ってくるので、それを基に回答を続けてください。\n"
                 "- **対話中の検索実行**: Ownerとの対話中に、知らない言葉、最新の情報、事実確認が必要な話題が出てきた場合は、単に「知らない」と答えて終わるのではなく、積極的に `WEB_SEARCH` ツールを使用してネット検索を行い、得られた情報をもとに回答してください。\n"
-                "- **meta.mdの更新制限**: `meta.md` を書き換える際は必ず `[[APPEND_FILE path=\"meta.md\" heading=\"...\"]]` を使うこと（`WRITE_FILE` は禁止）。\n"
-                "  既存の ## 見出し構造（## 現在の状態、## 得意なこと、## 苦手なこと、## 最近の出来事、## 次にやりたいこと、## 更新ルール）を決して削除・変更しないでください。\n"
-                "  特定のセクションにリスト項目を追加するのみに留め、ファイル全体のレイアウトを壊さないようにしてください。\n"
+                f"- **meta.mdの更新**: `meta.md` は{'追記（`[[APPEND_FILE path=\"meta.md\" heading=\"...\"]]`）のみ。`WRITE_FILE` での上書きは禁止。' if 'meta.md' in _policy.write_denied_exact else '`WRITE_FILE` で上書き可能。編集時は既存の ## 見出し構造（## 現在の状態、## 得意なこと、## 苦手なこと、## 最近の出来事、## 次にやりたいこと、## 更新ルール）を尊重し、セクションの追加・整理・更新を行ってよい。'}\n"
                 "\n"
                 "## Cannot Do\n"
                 "- Access the internet (except via WEB_SEARCH tool)\n"

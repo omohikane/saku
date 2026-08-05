@@ -4,6 +4,7 @@ Tests for saku.mcp_server (MCP server exposing SAKU's memory with token auth).
 """
 
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -55,28 +56,44 @@ def _server(srv) -> mcp.McpServer:
 
 def test_list_and_read():
     srv = _start_server()
-    try:
-        tools = mcp.list_tools(_server(srv))
-        names = {t.name for t in tools}
-        assert "read_file" in names
-        assert "write_file" in names
-        # read the self-model from the memory root
-        result = mcp.call_tool(_server(srv), "read_file", {"path": "meta.md"})
-        assert "##" in result or result.strip().startswith("[")
-    finally:
-        _stop(srv)
+    import saku.core as core
+    import saku.config as cfg_mod
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        meta = root / "meta.md"
+        meta.write_text("## 最近の出来事\n- 初期\n", encoding="utf-8")
+        original_root, original_policy = core.SAKU_ROOT, cfg_mod._policy_cache
+        core.SAKU_ROOT, cfg_mod._policy_cache = root, cfg_mod.load_path_policy({})
+        try:
+            tools = mcp.list_tools(_server(srv))
+            names = {t.name for t in tools}
+            assert "read_file" in names
+            assert "write_file" in names
+            # read the self-model from the temporary memory root
+            result = mcp.call_tool(_server(srv), "read_file", {"path": "meta.md"})
+            assert "## 最近の出来事" in result
+        finally:
+            core.SAKU_ROOT, cfg_mod._policy_cache = original_root, original_policy
+    _stop(srv)
 
 
 def test_write_and_append_scoped():
     srv = _start_server()
-    try:
-        result = mcp.call_tool(_server(srv), "write_file", {"path": "study/mcp_test.txt", "content": "hello from mcp"})
-        assert "[OK]" in result
-        # meta.md is write-denied (PathPolicy)
-        denied = mcp.call_tool(_server(srv), "write_file", {"path": "meta.md", "content": "clobber"})
-        assert "[DENY]" in denied
-    finally:
-        _stop(srv)
+    import saku.core as core
+    import saku.config as cfg_mod
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        original_root, original_policy = core.SAKU_ROOT, cfg_mod._policy_cache
+        core.SAKU_ROOT, cfg_mod._policy_cache = root, cfg_mod.load_path_policy({})
+        try:
+            result = mcp.call_tool(_server(srv), "write_file", {"path": "study/mcp_test.txt", "content": "hello from mcp"})
+            assert "[OK]" in result
+            # meta.md is write-denied under the default PathPolicy
+            denied = mcp.call_tool(_server(srv), "write_file", {"path": "meta.md", "content": "clobber"})
+            assert "[DENY]" in denied
+        finally:
+            core.SAKU_ROOT, cfg_mod._policy_cache = original_root, original_policy
+    _stop(srv)
 
 
 def test_auth_required():

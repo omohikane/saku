@@ -108,6 +108,31 @@ def test_proactive():
         _stop(server)
 
 
+def test_requests_endpoint():
+    """GET /api/requests returns pending items from request_list.md."""
+    import tempfile
+
+    tmpdir = Path(tempfile.mkdtemp())
+    req_file = tmpdir / "request_list.md"
+    req_file.write_text(
+        "# 依頼\n\n- [ ] ブログ下書きを確認してほしい\n- [x] 完了済み\n- [ ] 新しいツールの承認\n\n- [ ] タブとスペース\n",
+        encoding="utf-8",
+    )
+    original_req, original_root = ui._REQ_FILE, ui._MEMORY_ROOT
+    ui._REQ_FILE, ui._MEMORY_ROOT = req_file, tmpdir
+    try:
+        server = _start_server()
+        try:
+            data = json.loads(_get(server, "/api/requests"))
+            assert data == {"requests": ["ブログ下書きを確認してほしい", "新しいツールの承認", "タブとスペース"]}, data
+        finally:
+            _stop(server)
+    finally:
+        ui._REQ_FILE, ui._MEMORY_ROOT = original_req, original_root
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 def test_daemon_thread_spawns():
     """Verify that daemon.main() is started in a thread with auto_daemon enabled (no LLM)."""
     import saku.daemon as daemon_mod
