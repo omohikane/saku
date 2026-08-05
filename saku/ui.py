@@ -66,6 +66,18 @@ PAGE = """<!doctype html>
   #proactive { position:fixed; right:16px; bottom:80px; background:var(--panel);
                border:1px solid var(--accent); border-radius:8px; padding:10px 14px;
                max-width:280px; display:none; }
+  #requestbar { display:flex; align-items:center; gap:6px; }
+  #requestbtn { background:var(--panel); color:#e0af68; border:1px solid #555;
+                border-radius:8px; padding:4px 10px; font-size:0.85em; cursor:pointer;
+                display:none; }
+  #requestbadge { background:#e0af68; color:#111; border-radius:10px; padding:0 6px;
+                  font-size:0.8em; font-weight:bold; }
+  #requestpanel { position:fixed; top:48px; right:16px; background:var(--panel);
+                  border:1px solid #e0af68; border-radius:8px; padding:12px 14px;
+                  max-width:320px; box-shadow:0 4px 16px rgba(0,0,0,.4); display:none; }
+  #requestpanel h4 { margin:0 0 6px; color:#e0af68; font-size:0.9em; }
+  #requestpanel ul { margin:0; padding-left:18px; }
+  #requestpanel li { margin:4px 0; font-size:0.88em; }
   #inputbar { display:flex; gap:8px; padding:12px 16px; border-top:1px solid #333; }
   #input { flex:1; background:var(--panel); border:none; color:var(--text);
            border-radius:8px; padding:10px 12px; font-size:1em; }
@@ -78,6 +90,10 @@ PAGE = """<!doctype html>
   <header><strong>SAKU</strong><span id="status">local</span></header>
   <div id="messages"></div>
   <div id="proactive"></div>
+  <div id="requestbar">
+    <button id="requestbtn">💡 依頼<span id="requestbadge">0</span></button>
+    <div id="requestpanel"><h4>💡 Ownerへのお願いリスト</h4><ul></ul></div>
+  </div>
   <div id="inputbar">
     <input id="input" type="text" placeholder="メッセージを入力">
     <button id="send">送信</button>
@@ -161,6 +177,34 @@ async function pollProactive() {
   } catch (e) {}
 }
 setInterval(pollProactive, 10000);
+
+async function pollRequests() {
+  try {
+    const res = await fetch("/api/requests");
+    const data = await res.json();
+    const list = (data && data.requests) || [];
+    const btn = $("#requestbtn");
+    if (!list.length) {
+      btn.style.display = "none";
+      return;
+    }
+    btn.style.display = "inline-block";
+    $("#requestbadge").textContent = list.length;
+    const ul = $("#requestpanel").querySelector("ul");
+    ul.textContent = "";
+    list.forEach(item => {
+      const li = document.createElement("li");
+      li.textContent = item;
+      ul.append(li);
+    });
+  } catch (e) {}
+}
+$("#requestbtn").onclick = () => {
+  const p = $("#requestpanel");
+  p.style.display = p.style.display === "block" ? "none" : "block";
+};
+pollRequests();
+setInterval(pollRequests, 15000);
 </script>
 </body>
 </html>
@@ -180,6 +224,26 @@ def _load_proactive() -> dict:
         return data
     except Exception:
         return {}
+
+
+_REQ_FILE = _MEMORY_ROOT / "request_list.md"
+
+
+def _load_requests() -> list[str]:
+    """Read pending Owner-request items (``- [ ] ...``) from request_list.md."""
+    if not _REQ_FILE.exists():
+        return []
+    try:
+        pending = []
+        for line in _REQ_FILE.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("- [ ]"):
+                desc = line.replace("- [ ]", "").strip()
+                if desc:
+                    pending.append(desc)
+        return pending
+    except Exception:
+        return []
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -205,6 +269,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/proactive":
             self._send_headers(ctype="application/json")
             self.wfile.write(json.dumps(_load_proactive(), ensure_ascii=False).encode("utf-8"))
+            return
+        if path == "/api/requests":
+            self._send_headers(ctype="application/json")
+            self.wfile.write(json.dumps({"requests": _load_requests()}, ensure_ascii=False).encode("utf-8"))
             return
         self._send_headers(404)
         self.wfile.write(b"not found")

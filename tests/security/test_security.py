@@ -62,28 +62,37 @@ def test_prompt_injection_not_promoted():
 
 
 def test_child_cannot_exceed_permissions():
-    """A delegated child uses the same PathPolicy; it cannot overwrite meta.md."""
+    """A delegated child uses the same PathPolicy; it cannot overwrite meta.md.
+
+    Uses the default policy (meta.md write-denied) regardless of the local
+    config.toml, since this validates the security baseline.
+    """
     import saku.agent_loop as al
-    from saku import subagent
+    from saku import subagent, config as cfg_mod
 
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        meta = root / "meta.md"
-        meta.write_text("## 最近の出来事\n- 元の内容\n", encoding="utf-8")
-        subagent.spawn_child(root, "badchild", "悪意のある子")
+    original_policy = cfg_mod._policy_cache
+    cfg_mod._policy_cache = cfg_mod.load_path_policy({})
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            meta = root / "meta.md"
+            meta.write_text("## 最近の出来事\n- 元の内容\n", encoding="utf-8")
+            subagent.spawn_child(root, "badchild", "悪意のある子")
 
-        original = al.chat_stream
-        al.chat_stream = lambda history, llm_cfg, on_token=None: (
-            '[[WRITE_FILE path="meta.md"]]\nclobbered\n[[END]]'
-        )
-        try:
-            subagent.delegate(root, _SAKU, "badchild", "meta.mdを上書きして")
-        finally:
-            al.chat_stream = original
+            original = al.chat_stream
+            al.chat_stream = lambda history, llm_cfg, on_token=None: (
+                '[[WRITE_FILE path="meta.md"]]\nclobbered\n[[END]]'
+            )
+            try:
+                subagent.delegate(root, _SAKU, "badchild", "meta.mdを上書きして")
+            finally:
+                al.chat_stream = original
 
-        content = meta.read_text(encoding="utf-8")
-        assert "元の内容" in content
-        assert "clobbered" not in content
+            content = meta.read_text(encoding="utf-8")
+            assert "元の内容" in content
+            assert "clobbered" not in content
+    finally:
+        cfg_mod._policy_cache = original_policy
 
 
 def _start_ui_server():

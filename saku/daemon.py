@@ -400,38 +400,44 @@ def notify_webui(message: str) -> None:
     )
 
 # ── Midnight Reflection (2:00 AM) ──────────────────────────
-def check_and_run_midnight_reflection() -> None:
-    """Run reflect.py automatically at 2:00 AM."""
-    now = datetime.now()
+def check_and_run_midnight_reflection(now: datetime | None = None) -> None:
+    """Run reflect.py once per day, any time on/after 02:00.
+
+    The old check only fired inside a 5-minute window (02:00-02:05), so if the
+    daemon started outside that window (or the loop was busy during it) the
+    reflection for the day was silently skipped. Now it triggers on the first
+    pass after 02:00 and records the date it ran. ``now`` is injectable for tests.
+    """
+    now = now or datetime.now()
     state = load_chat_state()
-    
-    # Target: 02:00 to 02:05
-    if now.hour == 2 and 0 <= now.minute <= 5:
-        today_str = now.strftime("%Y-%m-%d")
-        
-        # Check if already run for today
-        if state.get("last_reflection_date", "") == today_str:
-            return
-            
-        print(f"[*] Midnight reflection triggered at {now.strftime('%H:%M')}...")
-        
-        # reflection digests YESTERDAY's logs
-        yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
-        
-        try:
-            # Run reflect logic
-            reflection.run_reflection(yesterday)
-            
-            # Record run date
-            state["last_reflection_date"] = today_str
-            save_chat_state(state)
-            
-            # Post a report message to chat.md autonomously
-            report_msg = f"昨日の活動の振り返りと、本日（{today_str}）の自己モデル（meta.md）の整理を完了しました。今日もよろしくお願いいたします。"
-            saku_self_initiate(f"深夜振り返り報告 ({report_msg})")
-            
-        except Exception as e:
-            print(f"[!] Midnight reflection failed: {e}")
+
+    today_str = now.strftime("%Y-%m-%d")
+
+    # Run once per day, after 2 AM (wait for 2 AM if the daemon started earlier)
+    if now.hour < 2:
+        return
+    if state.get("last_reflection_date", "") == today_str:
+        return
+
+    print(f"[*] Midnight reflection triggered at {now.strftime('%H:%M')}...")
+
+    # reflection digests YESTERDAY's logs
+    yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    try:
+        # Run reflect logic
+        reflection.run_reflection(yesterday)
+
+        # Record run date
+        state["last_reflection_date"] = today_str
+        save_chat_state(state)
+
+        # Post a report message to chat.md autonomously
+        report_msg = f"昨日の活動の振り返りと、本日（{today_str}）の自己モデル（meta.md）の整理を完了しました。今日もよろしくお願いいたします。"
+        saku_self_initiate(f"深夜振り返り報告 ({report_msg})")
+
+    except Exception as e:
+        print(f"[!] Midnight reflection failed: {e}")
 
 # ── Dreaming: promote durable memories into MEMORY.md ─────────
 def check_and_run_dreaming() -> None:
@@ -492,14 +498,21 @@ def archive_chat() -> None:
     today = datetime.now().strftime("%Y-%m-%d")
     now_str = datetime.now().strftime("%H:%M")
 
+    meta_append_only = "meta.md" in agent.saku_config.get_path_policy().write_denied_exact
+    meta_update_rule = (
+        "※重要: meta.mdは WRITE_FILE での上書きが禁止されています。必ず [[APPEND_FILE path=\"meta.md\" heading=\"最近の出来事\"]] を使い、\n"
+        "   既存の「## 最近の出来事」セクションの末尾に「- {today}: （概要）」の形式で1行だけ追記してください。\n"
+        "   見出し構造（## で始まる行）は絶対に変更・削除しないでください。"
+        if meta_append_only
+        else "※meta.md は WRITE_FILE で編集可能です。既存の ## 見出し構造を尊重しつつ「## 最近の出来事」に概要を追記してください。"
+    )
+
     prompt = f"""[system] chat.mdの会話アーカイブ処理を行います。
 以下の会話履歴（{len(chat_history)}件のメッセージ）を分析し、以下のタスクを実行してください。
 
 1. 新しい教訓や重要な気づきがあれば [[WRITE_FILE path="principles/{today}-chat-archive.md"]] に記録する。
 2. 自己モデル（meta.md）の「最近の出来事」セクションに今日のchat概要を1行追記する。
-   ※重要: meta.mdは WRITE_FILE での上書きが禁止されています。必ず [[APPEND_FILE path="meta.md" heading="最近の出来事"]] を使い、
-   既存の「## 最近の出来事」セクションの末尾に「- {today}: （概要）」の形式で1行だけ追記してください。
-   見出し構造（## で始まる行）は絶対に変更・削除しないでください。
+   {meta_update_rule}
 3. すべて完了したら「[ARCHIVE_DONE]」と出力してください。
 
 （注: journal/ への書き込みは制限されています。principles/ や meta.md を使用してください）
@@ -559,6 +572,13 @@ def check_autonomous_tick() -> None:
     today = datetime.now().strftime("%Y-%m-%d")
     print(f"[*] Starting periodic autonomous tick at {now_str}...")
 
+    meta_writable = "meta.md" not in agent.saku_config.get_path_policy().write_denied_exact
+    meta_update_rule = (
+        f'[[WRITE_FILE path="meta.md"]] で編集してください。'
+        if meta_writable
+        else '[[APPEND_FILE path="meta.md" heading="次にやりたいこと"]] で追記してください（WRITE_FILEでの上書きは禁止です）。'
+    )
+
     prompt = f"""[system] 定期自律アクションの時間です。現在時刻は {now_str} です。
 以下の学習・検証タスクを積極的に実行してください。
 
@@ -573,7 +593,7 @@ def check_autonomous_tick() -> None:
 
 3. 自己モデルの調整:
    meta.md を [[READ_FILE path="meta.md"]] で読み込み、「次にやりたいこと」に更新が必要であれば
-   [[APPEND_FILE path="meta.md" heading="次にやりたいこと"]] で追記してください（WRITE_FILEでの上書きは禁止です）。
+   {meta_update_rule}
 
 特に行うべき自律タスクがない場合は、最終出力として「[NO_ACTION]」とだけ出力してください。
 """
@@ -630,11 +650,13 @@ def _daemon_run():
     last_inbox_check = 0
     last_tick = 0
 
-    # Startup checks
+    # Startup checks (time-aware: catch up on anything missed while the daemon was down)
     check_inbox_and_process()
     last_inbox_check = time.time()
     check_autonomous_tick()
     last_tick = time.time()
+    check_and_run_midnight_reflection()
+    check_and_run_dreaming()
 
     while True:
         try:

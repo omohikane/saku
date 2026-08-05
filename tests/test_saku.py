@@ -80,9 +80,16 @@ def run_tests():
         print("    -> PASS")
 
         # 5. Write file to meta.md denial test
+        # (use the default policy: meta.md is write-denied unless config.toml overrides it)
+        from saku import config as cfg_mod
+        original_policy = cfg_mod._policy_cache
+        cfg_mod._policy_cache = cfg_mod.load_path_policy({})
         print("[5] Test write_file denial on meta.md:")
-        res_write = write_file.run(SAKU_ROOT, "meta.md", "clobbered content")
-        assert "[DENY]" in res_write, f"Expected DENY for meta.md write, got: {res_write}"
+        try:
+            res_write = write_file.run(SAKU_ROOT, "meta.md", "clobbered content")
+            assert "[DENY]" in res_write, f"Expected DENY for meta.md write, got: {res_write}"
+        finally:
+            cfg_mod._policy_cache = original_policy
         print("    -> PASS")
 
         # 5b. Append_file with heading under ## section
