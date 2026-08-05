@@ -224,8 +224,10 @@ def run_agent_loop(prompt: str, log_action_name: str, extra_history: list[dict] 
 
     if result.action_taken and result.last_raw and not result.last_raw.startswith("[ERROR]"):
         agent.save_autonomous_log(log_action_name, result.visible, thinking=result.thinking)
+        logger.info("[%s] reply: %s", log_action_name, result.visible[:500])
         return True, result.visible
 
+    logger.info("[%s] no-action reply: %s", log_action_name, result.visible[:500])
     return False, result.visible
 
 # ── Chat: reply ──────────────────────────────────────────
@@ -691,6 +693,7 @@ def _daemon_run():
             print("\n[-] Daemon stopped by user.")
             break
         except Exception as e:
+            logger.exception("daemon loop error: %s", e)
             print(f"[!] Daemon encountered unexpected error: {e}")
             import traceback
             traceback.print_exc()
