@@ -71,6 +71,19 @@ def resolve_inbox_dir(cfg: dict, memory_root: Path, config_base: Path) -> Path:
     return (config_base / p).resolve()
 
 
+def resolve_plugins_root(cfg: dict, config_base: Path) -> Path:
+    """Resolve the Agent Plugins root (``[plugins] root``, default ``plugins/``).
+
+    Relative paths are resolved against the config base; absolute paths pass
+    through. ``${VAR}`` expansion is supported like the memory root.
+    """
+    rel = expand_env(cfg.get("plugins", {}).get("root", "plugins"))
+    p = Path(rel)
+    if p.is_absolute():
+        return p
+    return (config_base / rel).resolve()
+
+
 # ── LLM Config ──────────────────────────────────────────
 @dataclass
 class LlmConfig:

@@ -119,6 +119,15 @@ auto_initiate_cooldown_seconds = 28800 # SAKU self-initiates every 8 hours
 # [mcp.servers.homeassistant]
 # url = "http://127.0.0.1:8766/mcp"
 
+# [plugins] - Agent Plugins 1.0.0（https://agent-plugins.org）
+# プラグイン（plugin.json + 任意の mcp.json / skills/）を置くディレクトリ。
+# 相対パスは config 基準、絶対パスはそのまま使われる。${VAR} 展開も可。
+# 各サブディレクトリが1プラグイン。plugin.json の $schema と name が必須。
+# プラグイン内の mcp.json は [mcp.servers.*] と同じ McpServer として読まれ、
+# ${PLUGIN_ROOT}/${PLUGIN_DATA} プレースホルダが展開される。
+# [plugins]
+# root = "plugins"
+
 # [ui] - Web UI 設定（Phase B で実装。定義のみ）
 # [ui]
 # host = "127.0.0.1"

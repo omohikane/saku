@@ -135,6 +135,117 @@ def test_load_plugins_missing_root():
         assert errors == []
 
 
+MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
+
+
+def _plugin(name: str, root: Path) -> plugins.Plugin:
+    return plugins.Plugin(name=name, root=root, manifest={})
+
+
+def _write_mcp(root: Path, data: dict) -> Path:
+    p = root / "mcp.json"
+    p.write_text(json.dumps(data), encoding="utf-8")
+    return p
+
+
+def test_mcp_stdio_conversion():
+    with tempfile.TemporaryDirectory(prefix="saku-plugins-mcp-") as td:
+        root = Path(td)
+        plugin = _plugin("demo", root)
+        data = {
+            "$schema": MCP_SCHEMA,
+            "mcpServers": {
+                "local": {
+                    "type": "stdio",
+                    "command": "./bin/validator",
+                    "args": ["--data", "${PLUGIN_DATA}/out"],
+                    "env": {"CFG": "${PLUGIN_ROOT}/config.json"},
+                    "cwd": "${PLUGIN_ROOT}",
+                }
+            },
+        }
+        _write_mcp(root, data)
+        servers, reports = plugins.load_mcp_servers(plugin, root / ".data" / "demo")
+        assert reports == [], reports
+        assert len(servers) == 1
+        s = servers[0]
+        assert s.name == "local"
+        assert s.command == str((root / "bin" / "validator").resolve())
+        assert s.args == ["--data", str((root / ".data" / "demo" / "out").resolve())]
+        assert s.env == {"CFG": str(root / "config.json")}
+        assert s.cwd == str(root)
+
+
+def test_mcp_http_conversion():
+    with tempfile.TemporaryDirectory(prefix="saku-plugins-mcp-http-") as td:
+        root = Path(td)
+        plugin = _plugin("demo", root)
+        data = {
+            "$schema": MCP_SCHEMA,
+            "mcpServers": {
+                "remote": {"type": "streamable-http", "url": "https://x.example/mcp"},
+            },
+        }
+        _write_mcp(root, data)
+        servers, reports = plugins.load_mcp_servers(plugin, root / ".data")
+        assert reports == [], reports
+        assert servers[0].url == "https://x.example/mcp"
+
+
+def test_mcp_invalid_entries_skipped():
+    with tempfile.TemporaryDirectory(prefix="saku-plugins-mcp-bad-") as td:
+        root = Path(td)
+        plugin = _plugin("demo", root)
+        data = {
+            "$schema": MCP_SCHEMA,
+            "mcpServers": {
+                "good": {"type": "streamable-http", "url": "https://ok.example/mcp"},
+                "bad": {"type": "stdio"},  # missing command
+                "nope": {"type": "foo"},
+            },
+        }
+        _write_mcp(root, data)
+        servers, reports = plugins.load_mcp_servers(plugin, root / ".data")
+        assert len(servers) == 1
+        assert len(reports) == 2
+
+
+def test_mcp_cwd_escape_rejected():
+    with tempfile.TemporaryDirectory(prefix="saku-plugins-mcp-cwd-") as td:
+        root = Path(td)
+        plugin = _plugin("demo", root)
+        data = {
+            "$schema": MCP_SCHEMA,
+            "mcpServers": {
+                "evade": {"type": "stdio", "command": "./bin/x", "cwd": "${PLUGIN_ROOT}/../../etc"},
+            },
+        }
+        _write_mcp(root, data)
+        servers, reports = plugins.load_mcp_servers(plugin, root / ".data")
+        assert servers == []
+        assert any("escape" in r or "cwd" in r for r in reports), reports
+
+
+def test_mcp_schema_mismatch_reported():
+    with tempfile.TemporaryDirectory(prefix="saku-plugins-mcp-schema-") as td:
+        root = Path(td)
+        plugin = _plugin("demo", root)
+        data = {"$schema": "https://x/old", "mcpServers": {}}
+        _write_mcp(root, data)
+        servers, reports = plugins.load_mcp_servers(plugin, root / ".data")
+        assert servers == []
+        assert any("schema" in r for r in reports)
+
+
+def test_mcp_absent_returns_empty():
+    with tempfile.TemporaryDirectory(prefix="saku-plugins-mcp-absent-") as td:
+        root = Path(td)
+        plugin = _plugin("demo", root)
+        servers, reports = plugins.load_mcp_servers(plugin, root / ".data")
+        assert servers == []
+        assert reports == []
+
+
 def run_tests():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in tests:

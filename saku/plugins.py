@@ -13,7 +13,10 @@ The loading rules follow the spec strictly:
   ignored, but do not reject the plugin (spec §5.2).
 - An unsupported ``$schema`` version rejects the plugin (spec §5.2).
 
-Component loading (skills/, mcp.json) is added in later phases.
+Components:
+
+- ``skills/`` (Agent Skills) and ``mcp.json`` (MCP servers) are loaded per the
+  spec §6/§7. Skills discovery is a later phase; MCP servers are supported.
 """
 
 import json
@@ -21,7 +24,16 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from saku.mcp import McpServer
+
 PLUGIN_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
+
+PLUGIN_ROOT = "${PLUGIN_ROOT}"
+PLUGIN_DATA = "${PLUGIN_DATA}"
+
+STDIO_FIELDS = {"type", "command", "args", "env", "cwd"}
+HTTP_FIELDS = {"type", "url", "headers"}
 
 # Allowed manifest top-level fields (spec §5.2). Anything else is reported+ignored.
 MANIFEST_FIELDS = {
@@ -177,3 +189,127 @@ def load_plugins(plugins_root: Path) -> tuple[list[Plugin], list[tuple[Path, Plu
         except PluginError as e:
             errors.append((d, e))
     return plugins, errors
+
+
+# ── MCP servers (spec §7.2) ─────────────────────────────
+def _is_within(child: Path, parent: Path) -> bool:
+    try:
+        child.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _expand_placeholders(value: str, root: Path, data_dir: Path) -> str:
+    """Expand ${PLUGIN_ROOT} / ${PLUGIN_DATA} (spec §7.2.1 stdio)."""
+    return value.replace(PLUGIN_ROOT, str(root)).replace(PLUGIN_DATA, str(data_dir))
+
+
+def _resolve_cwd(value: str, root: Path, data_dir: Path) -> Path:
+    """Resolve a cwd per spec §7.2.1: must stay within root or data dir."""
+    if value == PLUGIN_ROOT or value.startswith(f"{PLUGIN_ROOT}/"):
+        p = (root / value[len(PLUGIN_ROOT) :].lstrip("/")).resolve()
+        if not _is_within(p, root):
+            raise PluginError(f"cwd escapes plugin root: {value}")
+        return p
+    if value == PLUGIN_DATA or value.startswith(f"{PLUGIN_DATA}/"):
+        p = (data_dir / value[len(PLUGIN_DATA) :].lstrip("/")).resolve()
+        if not _is_within(p, data_dir):
+            raise PluginError(f"cwd escapes plugin data dir: {value}")
+        return p
+    if value.startswith("./"):
+        p = (root / value[2:]).resolve()
+        if not _is_within(p, root):
+            raise PluginError(f"cwd escapes plugin root: {value}")
+        return p
+    raise PluginError(f"cwd must be plugin-relative, {PLUGIN_ROOT}, or {PLUGIN_DATA}: {value}")
+
+
+def _convert_stdio(name: str, conf: dict, root: Path, data_dir: Path) -> McpServer:
+    command = conf.get("command")
+    if not isinstance(command, str) or not command:
+        raise PluginError("stdio server requires 'command'")
+    # Bare executable name or plugin-relative path beginning with ./ (spec §7.2.1).
+    if command.startswith("./"):
+        exe = (root / command[2:]).resolve()
+        if not _is_within(exe, root):
+            raise PluginError("command escapes plugin root")
+        command = str(exe)
+    elif "/" in command or command.startswith("."):
+        raise PluginError("command must be a bare executable name or ./-relative path")
+
+    args = []
+    for a in conf.get("args", []) or []:
+        if not isinstance(a, str):
+            raise PluginError("stdio 'args' must be an array of strings")
+        args.append(_expand_placeholders(a, root, data_dir))
+
+    env = {}
+    for k, v in (conf.get("env", {}) or {}).items():
+        if not isinstance(k, str) or not isinstance(v, str):
+            raise PluginError("stdio 'env' must be an object of strings")
+        env[k] = _expand_placeholders(v, root, data_dir)
+
+    cwd = root if "cwd" not in conf else _resolve_cwd(conf["cwd"], root, data_dir)
+
+    return McpServer(name=name, command=command, args=args, cwd=str(cwd), env=env)
+
+
+def _convert_http(name: str, conf: dict) -> McpServer:
+    url = conf.get("url")
+    if not isinstance(url, str) or not url:
+        raise PluginError("http server requires 'url'")
+    return McpServer(name=name, url=url, headers=conf.get("headers", {}) or {})
+
+
+def _convert_mcp_server(name: str, conf: dict, root: Path, data_dir: Path) -> McpServer:
+    """Convert a single mcp.json server entry. Raises PluginError on invalid."""
+    if not isinstance(conf, dict):
+        raise PluginError("server config must be an object")
+    type_ = conf.get("type")
+    if type_ == "stdio":
+        unknown = set(conf) - STDIO_FIELDS
+        if unknown:
+            raise PluginError(f"unexpected stdio field(s): {', '.join(sorted(unknown))}")
+        return _convert_stdio(name, conf, root, data_dir)
+    if type_ in ("streamable-http", "sse"):
+        unknown = set(conf) - HTTP_FIELDS
+        if unknown:
+            raise PluginError(f"unexpected {type_} field(s): {', '.join(sorted(unknown))}")
+        return _convert_http(name, conf)
+    raise PluginError(f"unknown transport type: {type_!r}")
+
+
+def load_mcp_servers(plugin: Plugin, data_dir: Path) -> tuple[list[McpServer], list[str]]:
+    """Parse plugin's ``mcp.json`` into McpServer definitions (spec §7.2).
+
+    Invalid server entries are skipped with a report; the plugin's other
+    component types are still loaded (spec §7.2.2).
+    """
+    mcp_path = plugin.root / "mcp.json"
+    if not mcp_path.is_file():
+        return [], []
+
+    try:
+        raw = mcp_path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except (json.JSONDecodeError, OSError) as e:
+        return [], [f"mcp.json is not valid JSON: {e}"]
+
+    if not isinstance(data, dict):
+        return [], ["mcp.json must be a JSON object"]
+    if data.get("$schema") != MCP_SCHEMA:
+        return [], [f"unsupported $schema in mcp.json: {data.get('$schema')!r}"]
+
+    mcp_servers = data.get("mcpServers")
+    if not isinstance(mcp_servers, dict):
+        return [], ["mcp.json 'mcpServers' must be an object"]
+
+    servers: list[McpServer] = []
+    reports: list[str] = []
+    for name, conf in mcp_servers.items():
+        try:
+            servers.append(_convert_mcp_server(name, conf, plugin.root, data_dir))
+        except PluginError as e:
+            reports.append(f"{plugin.name}/{name}: {e}")
+    return servers, reports
