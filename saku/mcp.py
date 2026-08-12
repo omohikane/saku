@@ -14,6 +14,7 @@ imported lazily so the core runs without it.
 import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass
@@ -24,6 +25,7 @@ class McpServer:
     args: list[str] = field(default_factory=list)
     cwd: str | None = None
     headers: dict = field(default_factory=dict)
+    env: dict = field(default_factory=dict)
 
 
 def load_servers(cfg: dict) -> list[McpServer]:
@@ -38,6 +40,7 @@ def load_servers(cfg: dict) -> list[McpServer]:
                 args=list(conf.get("args", [])),
                 cwd=conf.get("cwd"),
                 headers=conf.get("headers", {}),
+                env=conf.get("env", {}),
             )
         )
     return servers
@@ -71,6 +74,7 @@ async def _server_streams(server: McpServer):
         command=server.command,
         args=server.args,
         cwd=server.cwd,
+        env=server.env or None,
     )
     return stdio_client(params)
 
@@ -150,10 +154,29 @@ _descriptions_cache: str = ""
 
 
 def _load():
-    from .config import load_config
+    from .config import load_config, resolve_plugins_root
+    from .plugins import load_mcp_servers, load_plugins
 
-    cfg, _ = load_config()
-    return load_servers(cfg)
+    cfg, config_base = load_config()
+    servers = load_servers(cfg)
+
+    plugins_root = resolve_plugins_root(cfg, config_base)
+    plugins, errors = load_plugins(plugins_root)
+    for dir_, err in errors:
+        print(f"[plugins] skipped {dir_.name}: {err}")
+    for plugin in plugins:
+        data_dir = _plugin_data_dir(plugins_root, plugin.name)
+        mcp_servers, reports = load_mcp_servers(plugin, data_dir)
+        servers.extend(mcp_servers)
+        for report in reports:
+            print(f"[plugins] {report}")
+    return servers
+
+
+def _plugin_data_dir(plugins_root: Path, name: str) -> Path:
+    """Plugins' writable data lives outside the plugin package, under
+    ``<plugins_root>/.data/<name>`` (the ${PLUGIN_DATA} root)."""
+    return plugins_root / ".data" / name
 
 
 def get_tool_registry() -> dict[str, McpServer]:

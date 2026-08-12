@@ -161,7 +161,7 @@ memory/
 | B-3 | Web UI（stdlib・SSEストリーミング）＋daemonのproactive→UI配信 | ✅ 完了 |
 | — | 運用: `saku setup`・環境変数展開・systemd/DEPLOY・README更新 | ✅ 完了 |
 | — | 出力改善: ツール構文の非表示・繰り返し防止 | ✅ 完了 |
-| B-4 | チャネル抽象化（`saku/channels/`・chatmd分離） | 後回し（Discordをやる時に） |
+| B-4 | チャネル抽象化（`saku/channels/`・chatmd分離） | 後回し（Discordをやる時に）。対話/成長/処理の層分離に活用 |
 | C-1 | ポリグロットツール | 保留（必要になるまで。ローカルLLM前提ならPythonで十分の可能性） |
 | C-2 | MCPクライアント（外部サーバ接続・`tools/list`動的発見・`[[TOOL]]`ディスパッチ） | ✅ 完了 |
 | C-3 | MCPサーバ（SAKUのメモリ/ツールを公開・Bearerトークン認証・PathPolicy scope） | ✅ 完了 |
@@ -169,6 +169,30 @@ memory/
 | D-2 | `wiki/` 自己整理知識ベース（ノート作成・リンク・インデックス） | ✅ 完了 |
 | D-3 | 子エージェント基盤（`SPAWN_CHILD`/`DELEGATE`・`children/`・委譲深度ガード） | ✅ 完了（インフラ。自律的な生成・活用は段階的に） |
 | E | ホームNOC/SOC | 未着手 |
+
+## 対話層 / 成長層 / 処理層 の分離（2026-08 検討）
+
+実運用での診断: chatもinboxも同じフル自己モデル（システムプロンプト約7650トークン）を
+毎回送信しており、「軽い会話ですぐ返したい」という要望と矛盾する。これを3層に分離する。
+
+```
+対話層 (chat)   魂だけ引き継ぐライトプロンプト（soul/genome + 現在時刻のみ）
+                  重い記憶は会話後に非同期で想起。即応答を優先。
+成長層 (成長)   dreaming / reflection / wiki で記憶を「積むだけでなく整理する」
+                  積み重ねたままでは検索・想起の価値が下がる。consolidation（統合・減衰）を導入。
+処理層 (処理)   重い分析・長文は外部LLM / sub-agent / skill に委譲
+                  ローカルLLMのコンテキスト制約を、外部LLMや子エージェントでカバーする。
+```
+
+- **対話層**: フル自己モデルは廃止せず、「対話用ライトプロンプト」を新設。魂（identity/soul.md,
+  genome.md）と現在時刻だけを引き継ぎ、memory/MEMORY/principles 等は対話中は読み込まない。
+  必要な記憶はツールでオンデマンド想起する。
+- **成長層**: 現在の dreaming は journal/monologue → MEMORY.md への昇格のみで、
+  古い記憶の整理・統合・減衰がない。これを強化する（重要度スコア・TTL的レビュー・リンク統合）。
+- **処理層**: ローカルLLM（16GB VRAM・32768 ctx）では長文分析・大量ファイル処理に限界がある。
+  重い処理は sub-agent（memory/children/）や外部LLMプロファイル（config.toml [llm.profiles]）へ
+  委譲する。例: inbox処理を外部LLM（cloud-deepseek等）で簡易実行 → ローカルLLMは対話に専念。
+- これにより DESIGN.md 冒頭の設計原則（コンテキストを小さく保つ）を実効化する。
 
 ## 優先順位（見直し版・2026-08）
 
