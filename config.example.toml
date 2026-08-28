@@ -125,6 +125,14 @@ auto_initiate_cooldown_seconds = 28800 # SAKU self-initiates every 8 hours
 # [mcp.servers.homeassistant]
 # url = "http://127.0.0.1:8766/mcp"
 
+# [wiki] - Wiki の保存先（既定: memory/wiki）
+# Obsidian全体や airi dir に置きたい場合は相対/絶対パスで指定。${VAR} も可。
+# memory からの相対: ../ で _saku 直下、../../ で vault 直下
+# 例:  vaultの 02_Reference に置く → root = "../../02_Reference"
+#      airi専用 → root = "../../03_Projects/airi/wiki"
+# [wiki]
+# root = "wiki"
+
 # [plugins] - Agent Plugins 1.0.0（https://agent-plugins.org）
 # プラグイン（plugin.json + 任意の mcp.json / skills/）を置くディレクトリ。
 # 相対パスは config 基準、絶対パスはそのまま使われる。${VAR} 展開も可。
