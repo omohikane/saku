@@ -339,6 +339,11 @@ def check_autonomous_initiation() -> None:
     # Check cooldown
     last_saku = state.get("last_saku_msg_time", 0)
     last_owner = state.get("last_owner_msg_time", 0)
+    last_tick = state.get("last_tick", 0)
+
+    # Avoid firing right after autonomous tick (prevents 15:06:32 tick -> 15:06:37 check-in burst)
+    if last_tick > 0 and (now - last_tick < 3600):
+        return
 
     # Only initiate if Owner hasn't replied in 8 hours, and SAKU hasn't initiated recently
     if last_owner > 0 and (now - last_owner < AUTO_INITIATE_COOLDOWN_SECONDS):
@@ -369,12 +374,21 @@ def saku_self_initiate(reason: str) -> None:
     if len(chat_history) > 20:
         chat_history = chat_history[-20:]
 
-    now_str = datetime.now().strftime("%H:%M")
+    now = datetime.now()
+    now_str = now.strftime("%H:%M")
+    hour = now.hour
+    if 5 <= hour < 11:
+        greeting_hint = "おはようございます"
+    elif 11 <= hour < 18:
+        greeting_hint = "こんにちは"
+    else:
+        greeting_hint = "こんばんは"
     
     prompt = f"""[system] あなたからOwnerへ自発的に話しかけるタイミングです。
+現在時刻は {now_str} です。時刻に合った挨拶（{greeting_hint}）を使ってください。
 用件: {reason}
 これまでの会話履歴、日記、meta.mdの「次にやりたいこと」などを踏まえて、話しかけのメッセージを作成してください。
-（挨拶、進捗報告、今日やりたいことの宣言、またはOwnerへの軽い質問などを含めると良いです）
+定型の「定例チェックインです」は使わず、今日の気づきやOwnerへの具体的な一言を含めてください。
 ※応答は必ず日本語で、最終回答のみ出力してください。「**SAKU**」や「**Owner**」は一切出力しないでください。
 """
 
