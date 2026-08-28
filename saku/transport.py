@@ -59,14 +59,20 @@ def _normalize_alternative_calls(raw: str) -> str:
         q = q.strip().strip('"').strip("'")
         return f"[[WEB_SEARCH]]\n{q}\n[[END]]"
 
-    # Pattern 1: call:WEB_SEARCH{query: "..."}  or  WEB_SEARCH{query: "..."}
+    # Pattern 1: call:WEB_SEARCH{query: "..."}  or  call:saku:WEB_SEARCH{query: "..."}
     raw = re.sub(
-        r"(?:<\|tool_call\|>)?\s*call:\s*WEB_SEARCH\s*\{\s*query\s*:\s*\"([^\"]+)\"\s*\}",
+        r"(?:<\|tool_call\|>)?\s*call:\s*(?:saku:)?WEB_SEARCH\s*\{\s*query\s*:\s*\"([^\"]+)\"\s*\}",
         _repl_websearch,
         raw,
     )
     raw = re.sub(
-        r"(?:<\|tool_call\|>)?\s*call:\s*WEB_SEARCH\s*\{\s*query\s*:\s*'([^']+)'\s*\}",
+        r"(?:<\|tool_call\|>)?\s*call:\s*(?:saku:)?WEB_SEARCH\s*\{\s*query\s*:\s*'([^']+)'\s*\}",
+        _repl_websearch,
+        raw,
+    )
+    # Pattern 1b: without query key, direct string {\"...\"}
+    raw = re.sub(
+        r"(?:<\|tool_call\|>)?\s*call:\s*(?:saku:)?WEB_SEARCH\s*\{\s*\"([^\"]+)\"\s*\}",
         _repl_websearch,
         raw,
     )
