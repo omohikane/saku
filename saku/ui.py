@@ -306,7 +306,7 @@ class Handler(BaseHTTPRequestHandler):
         with _sessions_lock:
             history = _sessions.get(client_id)
             if history is None:
-                history = [{"role": "system", "content": agent.build_system_prompt()}]
+                history = [{"role": "system", "content": agent.build_light_system_prompt()}]
             history = list(history)
             history.append({"role": "user", "content": message})
             _sessions[client_id] = history
