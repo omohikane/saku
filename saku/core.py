@@ -151,6 +151,48 @@ def reload_system_prompt_cache() -> None:
     _prompt_cache["static"] = None
 
 
+def build_light_system_prompt() -> str:
+    """Light prompt for chat/inbox: soul+genome+tools + current time only.
+
+    Omits MEMORY.md / meta.md / principles / skills to keep the prompt
+    small (~3k tokens vs ~11k). Needed memory is fetched on-demand via
+    SEARCH_NOTES / READ_FILE (see #19).
+    """
+    static = _prompt_cache["static"]
+    if static is None:
+        static = _build_static_sections()
+        _prompt_cache["static"] = static
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    return f"{static}\n\n# Current Time\n現在: {now}"
+
+
+def build_inbox_system_prompt() -> str:
+    """Minimal prompt for inbox triage: even smaller than light.
+
+    Soul+genome + current time + only the 3 tools needed for archiving.
+    Used by daemon check_inbox_and_process (#18) to avoid the 11k-token
+    full prompt per file.
+    """
+    genome_path = _find_genome_path()
+    soul = load_file(MEMORY_ROOT / "identity/soul.md")
+    genome = compress(load_file(genome_path), MAX_GENOME_CHARS)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    return (
+        "# SAKU Core\n" + soul + "\n\n"
+        "# Identity\n" + genome + "\n\n"
+        "# Inbox Tools\n"
+        'To write a file:\n[[WRITE_FILE path="principles/2026-08-28-topic.md"]]\n'
+        "content\n[[END]]\n\n"
+        'To append:\n[[APPEND_FILE path="principles/2026-08-28-topic.md"]]\n'
+        "content\n[[END]]\n\n"
+        'To read:\n[[READ_FILE path="principles/existing.md"]]\n[[END]]\n\n'
+        "# Task\n"
+        "インボックスのファイルを読み、知識ベースに保存すべき情報があれば\n"
+        "上記ツールで保存してください。保存不要なら [INBOX_PROCESSED] と出力。\n\n"
+        f"# Current Time\n現在: {now}"
+    )
+
+
 def _build_volatile_sections() -> str:
     """Volatile parts: current state (meta.md), long-term memory (MEMORY.md),
     recent principles/skills, and current time.

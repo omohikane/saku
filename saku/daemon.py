@@ -196,9 +196,16 @@ def chat_ends_with_owner(content: str, last_content: str) -> tuple[bool, str]:
     return True, user_diff
 
 # ── Agent loop runner ────────────────────────────────────
-def run_agent_loop(prompt: str, log_action_name: str, extra_history: list[dict] = None) -> tuple[bool, str]:
+def run_agent_loop(
+    prompt: str, log_action_name: str, extra_history: list[dict] = None, light: bool = False, inbox_mode: bool = False
+) -> tuple[bool, str]:
     """Run Saku on a specific prompt, execute tools, and log results. Returns (success, visible_output)."""
-    system_prompt = agent.build_system_prompt()
+    if inbox_mode:
+        system_prompt = agent.build_inbox_system_prompt()
+    elif light:
+        system_prompt = agent.build_light_system_prompt()
+    else:
+        system_prompt = agent.build_system_prompt()
     history = [{"role": "system", "content": system_prompt}]
     if extra_history:
         history.extend(extra_history)
@@ -282,12 +289,13 @@ def check_chat_and_reply() -> None:
     prompt = f"""[system] chat.md上でOwnerからメッセージが届きました。
 以下の指示と会話の文脈を踏まえて返信してください。
 返信は必ず日本語で、最終的な回答のみを出力してください。「**Owner**」や「Owner>」は一切出力しないでください。
+必要な記憶があれば [[SEARCH_NOTES]] や [[READ_FILE]] でオンデマンドに取得してください。
 
 Ownerのメッセージ:
 {owner_msg}
 """
 
-    _, saku_reply = run_agent_loop(prompt, "chat返信", extra_history=context_history)
+    _, saku_reply = run_agent_loop(prompt, "chat返信", extra_history=context_history, light=True)
 
     if not saku_reply:
         state["last_mtime"] = CHAT_FILE.stat().st_mtime
@@ -563,7 +571,7 @@ def check_inbox_and_process() -> None:
 この内容を分析し、あなたの知識ベース（principles/ や skills/）に追加すべき情報があれば書き込んでください。
 処理完了後は「[INBOX_PROCESSED]」と出力してください。
 """
-            success, _ = run_agent_loop(prompt, f"インボックス処理: {p.name}")
+            success, _ = run_agent_loop(prompt, f"インボックス処理: {p.name}", inbox_mode=True)
             if success:
                 new_state[rel_inbox_path] = mtime
                 save_processed_state(new_state)
