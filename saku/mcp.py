@@ -161,9 +161,19 @@ def _load():
     servers = load_servers(cfg)
 
     plugins_root = resolve_plugins_root(cfg, config_base)
-    plugins, errors = load_plugins(plugins_root)
+    enabled = cfg.get("plugins", {}).get("enabled")
+    if isinstance(enabled, list) and enabled:
+        enabled_set: list[str] | None = enabled
+    else:
+        enabled_set = None
+    plugins, errors = load_plugins(plugins_root, enabled=enabled_set)
     for dir_, err in errors:
         print(f"[plugins] skipped {dir_.name}: {err}")
+    if enabled_set is not None and not plugins and not errors:
+        # No matching plugin found — still report for diagnostics
+        for name in enabled_set:
+            if not (plugins_root / name).is_dir():
+                print(f"[plugins] enabled plugin not found: {name}")
     for plugin in plugins:
         data_dir = _plugin_data_dir(plugins_root, plugin.name)
         mcp_servers, reports = load_mcp_servers(plugin, data_dir)
