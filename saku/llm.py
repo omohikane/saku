@@ -47,7 +47,7 @@ def chat_stream(
             json=payload,
             headers=headers,
             stream=True,
-            timeout=300,
+            timeout=900,
         )
         resp.raise_for_status()
     except requests.ConnectionError:
