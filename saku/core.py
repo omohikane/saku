@@ -206,6 +206,23 @@ def _build_volatile_sections() -> str:
     memory = compress(memory, MAX_MEMORY_CHARS)
     principles = load_recent_dir(MEMORY_ROOT / "principles", MAX_PRINCIPLES_CHARS)
     skills = load_recent_dir(MEMORY_ROOT / "skills", MAX_SKILLS_CHARS)
+    # Plugin skills (Agent Skills spec) — discovered from [plugins] root
+    plugin_skills_text = ""
+    try:
+        from saku.plugins import load_all_plugin_skills
+
+        plugins_root = saku_config.resolve_plugins_root(_cfg, _config_base)
+        pskills, _ = load_all_plugin_skills(plugins_root)
+        if pskills:
+            parts = []
+            for s in pskills:
+                # Keep each skill compact: name + description + truncated body
+                body = compress(s.body.strip(), 1500)
+                parts.append(f"### {s.name} ({s.plugin_name})\n{ s.description }\n\n{body}")
+            plugin_skills_text = "\n\n".join(parts)
+            plugin_skills_text = compress(plugin_skills_text, MAX_SKILLS_CHARS)
+    except Exception:
+        plugin_skills_text = ""
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     sections = []
@@ -217,6 +234,8 @@ def _build_volatile_sections() -> str:
         sections.append(("# Learned Principles", principles))
     if skills:
         sections.append(("# Acquired Skills", skills))
+    if plugin_skills_text:
+        sections.append(("# Plugin Skills", plugin_skills_text))
     sections.append(("# Current Time", f"現在: {now}"))
     return "\n\n".join(f"{title}\n{body}" for title, body in sections if body)
 
