@@ -396,6 +396,17 @@ def _build_static_sections() -> str:
                 "WIKI rules:\n"
                 "- notes live in wiki/ (one concept per note), linked via [[links]]\n"
                 "- after creating/updating notes, run op=\"index\" to refresh the index\n"
+                "- vault-wide: use root=\"../02_Reference\" etc. to write wiki outside memory (e.g. [[WIKI root=\"../02_Reference\" title=\"...\"]])\n"
+                "\n"
+                "To schedule a task via natural language:\n"
+                '[[SCHEDULE op="add" when="2026-08-29 10:00" task="レポートを作成"]]\n'
+                "[[END]]\n"
+                '[[SCHEDULE op="list"]]\n[[END]]\n'
+                '[[SCHEDULE op="remove" id="abc123"]]\n[[END]]\n'
+                "\n"
+                "SCHEDULE rules:\n"
+                "- when: \"YYYY-MM-DD HH:MM\" or natural phrase (natural phrases are kept pending)\n"
+                "- daemon executes due tasks and marks them done\n"
                 "\n"
                 "GIT rules:\n"
                 "- allowed: status, diff, add, commit, log, branch\n"
@@ -513,6 +524,10 @@ def _build_static_sections() -> str:
                 "\n"
                 "## 思考プロセスの記録ルール（重要）\n"
                 "- 自律アクションで `WEB_SEARCH`（検索）や `EXECUTE_CODE`（コード実行）を使用する際は、必ず「なぜその情報が必要なのか」「なぜそのプログラムを書くのか」という動機や意図を、同日の `monologue/YYYY-MM-DD.md` やジャーナルに明示的に書き残してください。どのようなアプローチで学習しようとしたか思考の履歴を残すことは、あなたの成長に不可欠です。\n"
+                "\n"
+                "## 委譲ルール\n"
+                "- Ownerから「調べておいて」「やっておいて」など時間のかかる作業を頼まれたら、必要に応じて [[SPAWN_CHILD]] で子を生成し [[DELEGATE]] で委譲してください。\n"
+                "- 軽い会話はその場で答え、重い作業だけをサブに任せることで、会話の即応性を保ってください。\n"
                 "\n"
                 "## Style\n"
                 "- 文体はgenome.mdの「文体」セクションに従う（です/ます調・短文・禁止表現・挨拶/締めなし・絵文字なし）。\n"

@@ -68,6 +68,21 @@ def delegate(memory_root: Path, code_root: Path, name: str, task: str, llm_cfg=N
         from saku import core as agent
         from saku.agent_loop import run_agent_loop
 
+        # Use sub LLM instance if configured (separate VRAM/queue for sub-tasks)
+        if llm_cfg is None:
+            try:
+                from saku.config import load_config, load_llm_instance
+
+                cfg, _ = load_config()
+                sub_cfg = load_llm_instance(cfg, "sub")
+                # Only use sub instance if it has a distinct api_url
+                if sub_cfg.api_url and sub_cfg.api_url != agent._current_llm.api_url:
+                    llm_cfg = sub_cfg
+                else:
+                    llm_cfg = agent._current_llm
+            except Exception:
+                llm_cfg = agent._current_llm
+
         system_prompt = build_child_prompt(name, genome)
         history = [
             {"role": "system", "content": system_prompt},
