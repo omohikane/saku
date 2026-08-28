@@ -33,6 +33,12 @@ model = ""
 # api_url = "http://127.0.0.1:8081/v1/chat/completions"  # 2台目の小さめモデル
 # context_window = 4096
 # working_budget_tokens = 2048
+#
+# [llm.instances.sub]
+# profile = "local"
+# api_url = "http://127.0.0.1:8081/v1/chat/completions"  # サブエージェント用（別LLMで並列実行）
+# context_window = 8192
+# working_budget_tokens = 4096
 
 [llm.profiles.openai]
 # OpenAI API
