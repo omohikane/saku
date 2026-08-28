@@ -59,39 +59,69 @@ class DDGLiteParser(HTMLParser):
         if self.link_depth > 0 or self.in_snippet_td:
             self.temp_text.append(data)
 
-def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
-    query = body.strip()
-    if not query:
-        return "[ERROR] Query is empty."
+def _extract_real_url(href: str) -> str:
+    """Unwrap DuckDuckGo redirect (//duckduckgo.com/l/?uddg=...)."""
+    if "uddg=" in href:
+        try:
+            parsed = urllib.parse.urlparse(href)
+            qs = urllib.parse.parse_qs(parsed.query)
+            real = qs.get("uddg", [""])[0]
+            if real:
+                return urllib.parse.unquote(real)
+        except Exception:
+            pass
+    if href.startswith("//"):
+        return "https:" + href
+    return href
 
-    print(f"[*] Web searching for: {query}")
-    url = "https://lite.duckduckgo.com/lite/"
+
+def _fetch_and_parse(query: str, url: str, timeout: int = 15) -> list[dict]:
     data = urllib.parse.urlencode({"q": query}).encode("utf-8")
     req = urllib.request.Request(
         url,
         data=data,
-        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
     )
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        html = response.read().decode("utf-8", errors="replace")
+    parser = DDGLiteParser()
+    parser.feed(html)
+    # Unwrap redirect URLs
+    for r in parser.results:
+        if "url" in r:
+            r["url"] = _extract_real_url(r["url"])
+    return parser.results
 
-    try:
-        with urllib.request.urlopen(req, timeout=10) as response:
-            html = response.read().decode("utf-8")
-        
-        parser = DDGLiteParser()
-        parser.feed(html)
-        
-        if not parser.results:
-            return "No results found."
 
-        formatted_results = []
-        for i, r in enumerate(parser.results[:5]):
-            title = r.get("title", "No Title")
-            link = r.get("url", "")
-            snippet = r.get("snippet", "")
-            formatted_results.append(
-                f"[{i+1}] {title}\nURL: {link}\nSummary: {snippet}\n"
-            )
-        return "\n".join(formatted_results)
+def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
+    query = body.strip() or kwargs.get("query", "").strip()
+    if not query:
+        return "[ERROR] Query is empty."
 
-    except Exception as e:
-        return f"[ERROR] Web search failed: {e}"
+    print(f"[*] Web searching for: {query}")
+    urls = [
+        "https://lite.duckduckgo.com/lite/",
+        "https://html.duckduckgo.com/html/",
+    ]
+    last_error = ""
+    for url in urls:
+        try:
+            results = _fetch_and_parse(query, url, timeout=15)
+            if results:
+                formatted_results = []
+                for i, r in enumerate(results[:5]):
+                    title = r.get("title", "No Title")
+                    link = r.get("url", "")
+                    snippet = r.get("snippet", "")
+                    formatted_results.append(
+                        f"[{i+1}] {title}\nURL: {link}\nSummary: {snippet}\n"
+                    )
+                return "\n".join(formatted_results)
+            last_error = "No results found."
+        except Exception as e:
+            last_error = str(e)
+            continue
+
+    if last_error == "No results found.":
+        return "No results found."
+    return f"[ERROR] Web search failed: {last_error} (tried lite + html endpoints)"
