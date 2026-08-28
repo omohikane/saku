@@ -174,16 +174,23 @@ def discover_plugin_dirs(plugins_root: Path) -> list[Path]:
     )
 
 
-def load_plugins(plugins_root: Path) -> tuple[list[Plugin], list[tuple[Path, PluginError]]]:
+def load_plugins(
+    plugins_root: Path, enabled: list[str] | None = None
+) -> tuple[list[Plugin], list[tuple[Path, PluginError]]]:
     """Load all plugins under ``plugins_root``.
 
     Returns ``(plugins, errors)`` where each error is ``(plugin_dir, error)``.
     A failing plugin is skipped, the others are still loaded (spec §5.3 client
     behavior mirrors component-level isolation).
+
+    If *enabled* is set (from ``[plugins] enabled``), only those plugin names
+    are considered; others are silently skipped.
     """
     plugins: list[Plugin] = []
     errors: list[tuple[Path, PluginError]] = []
     for d in discover_plugin_dirs(plugins_root):
+        if enabled is not None and d.name not in enabled:
+            continue
         try:
             plugins.append(load_manifest(d / "plugin.json"))
         except PluginError as e:
@@ -458,14 +465,21 @@ def load_plugin_skills(plugin: Plugin) -> tuple[list[Skill], list[str]]:
     return skills, reports
 
 
-def load_all_plugin_skills(plugins_root: Path) -> tuple[list[Skill], list[str]]:
+def load_all_plugin_skills(
+    plugins_root: Path, enabled: list[str] | None = None
+) -> tuple[list[Skill], list[str]]:
     """Load all skills from all plugins under *plugins_root*."""
-    plugins_list, _ = load_plugins(plugins_root)
+    plugins_list, _ = load_plugins(plugins_root, enabled=enabled)
     all_skills: list[Skill] = []
     reports: list[str] = []
     for p in plugins_list:
+        # Path constraint: skill must live within plugin root (spec §4.1)
         skills, rep = load_plugin_skills(p)
-        all_skills.extend(skills)
+        for s in skills:
+            if not _is_within(s.skill_dir, p.root):
+                reports.append(f"{p.name}/{s.name}: skill escapes plugin root")
+                continue
+            all_skills.append(s)
         reports.extend(rep)
     # Deterministic order
     all_skills.sort(key=lambda s: (s.plugin_name, s.name))

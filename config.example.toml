@@ -125,8 +125,10 @@ auto_initiate_cooldown_seconds = 28800 # SAKU self-initiates every 8 hours
 # 各サブディレクトリが1プラグイン。plugin.json の $schema と name が必須。
 # プラグイン内の mcp.json は [mcp.servers.*] と同じ McpServer として読まれ、
 # ${PLUGIN_ROOT}/${PLUGIN_DATA} プレースホルダが展開される。
+# enabled で読み込むプラグインを絞り込める（未指定なら全て読み込む）。
 # [plugins]
 # root = "plugins"
+# enabled = ["my-plugin", "other.plugin"]
 
 # [ui] - Web UI 設定（Phase B で実装。定義のみ）
 # [ui]

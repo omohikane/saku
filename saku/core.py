@@ -212,7 +212,9 @@ def _build_volatile_sections() -> str:
         from saku.plugins import load_all_plugin_skills
 
         plugins_root = saku_config.resolve_plugins_root(_cfg, _config_base)
-        pskills, _ = load_all_plugin_skills(plugins_root)
+        enabled = _cfg.get("plugins", {}).get("enabled")
+        enabled_set = enabled if isinstance(enabled, list) and enabled else None
+        pskills, _ = load_all_plugin_skills(plugins_root, enabled=enabled_set)
         if pskills:
             parts = []
             for s in pskills:
