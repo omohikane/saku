@@ -172,9 +172,11 @@ def run_dreaming(target_date: str | None = None) -> list[str]:
     # Auto-wiki: create a daily wiki note from the same items so growth is visible
     try:
         from saku.wiki import create_note, regenerate_index
+        from saku import config as cfg_mod
 
         if added:
-            wiki_root = agent.SAKU_ROOT / "wiki"
+            cfg, base = cfg_mod.load_config()
+            wiki_root = cfg_mod.resolve_wiki_root(cfg, base, agent.SAKU_ROOT)
             title = f"{target_date} Learnings"
             body = "\n".join(f"- {cat}: {txt}" for cat, txt in items if txt in added)
             # Only create if not already exists for this date
@@ -182,7 +184,7 @@ def run_dreaming(target_date: str | None = None) -> list[str]:
 
             if not note_path(wiki_root, title).exists():
                 create_note(wiki_root, title, body, tags="auto,dreaming", links="[[MEMORY]]")
-                print(f"[*] Dreaming: created wiki note {title}")
+                print(f"[*] Dreaming: created wiki note {title} at {wiki_root}")
             regenerate_index(wiki_root)
     except Exception as e:
         print(f"[!] Dreaming wiki auto-create failed: {e}")

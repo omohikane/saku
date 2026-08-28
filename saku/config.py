@@ -84,6 +84,23 @@ def resolve_plugins_root(cfg: dict, config_base: Path) -> Path:
     return (config_base / rel).resolve()
 
 
+def resolve_wiki_root(cfg: dict, config_base: Path, memory_root: Path) -> Path:
+    """Resolve the wiki root (``[wiki] root``, default ``wiki`` relative to memory).
+
+    Supports ``${VAR}`` and absolute paths, as well as vault-relative ``../``.
+    Relative paths are resolved against memory_root (so ``../`` escapes to
+    ``_saku/`` and ``../../`` escapes to vault root).
+    """
+    rel = cfg.get("wiki", {}).get("root", "")
+    if not rel:
+        return (memory_root / "wiki").resolve()
+    rel = expand_env(rel)
+    p = Path(rel)
+    if p.is_absolute():
+        return p.resolve()
+    return (memory_root / rel).resolve()
+
+
 # ── LLM Config ──────────────────────────────────────────
 @dataclass
 class LlmConfig:
