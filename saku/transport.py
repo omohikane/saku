@@ -48,12 +48,52 @@ def _run_mcp_tool(name: str, args_str: str, body: str) -> str | None:
         return f"[{name}] [ERROR] MCP call failed: {e}"
 
 
+def _normalize_alternative_calls(raw: str) -> str:
+    """Convert common hallucinated tool syntaxes to [[TOOL]] form (refs #28).
+
+    Handles: <|tool_call>call:WEB_SEARCH{query: \"...\"}, call:WEB_SEARCH, etc.
+    """
+    # <|tool_call>call:WEB_SEARCH{query: "foo"} or {"query": "foo"}
+    def _repl_websearch(m):
+        q = m.group(1) or m.group(2) or ""
+        q = q.strip().strip('"').strip("'")
+        return f"[[WEB_SEARCH]]\n{q}\n[[END]]"
+
+    # Pattern 1: call:WEB_SEARCH{query: "..."}  or  WEB_SEARCH{query: "..."}
+    raw = re.sub(
+        r"(?:<\|tool_call\|>)?\s*call:\s*WEB_SEARCH\s*\{\s*query\s*:\s*\"([^\"]+)\"\s*\}",
+        _repl_websearch,
+        raw,
+    )
+    raw = re.sub(
+        r"(?:<\|tool_call\|>)?\s*call:\s*WEB_SEARCH\s*\{\s*query\s*:\s*'([^']+)'\s*\}",
+        _repl_websearch,
+        raw,
+    )
+    # Pattern 2: WEB_SEARCH(query="...") or WEB_SEARCH{\"query\": \"...\"}
+    raw = re.sub(
+        r"WEB_SEARCH\s*\(\s*query\s*=\s*\"([^\"]+)\"\s*\)",
+        _repl_websearch,
+        raw,
+    )
+    raw = re.sub(
+        r"WEB_SEARCH\s*\{\s*\"query\"\s*:\s*\"([^\"]+)\"\s*\}",
+        _repl_websearch,
+        raw,
+    )
+    # Bare <|tool_call|> markers to visible
+    raw = raw.replace("<|tool_call|>", "").replace("<tool_call>", "")
+    return raw
+
+
 def exec_tools(raw: str, memory_root: Path, code_root: Path) -> list[str]:
     """Parse and execute [[TOOL ...]] blocks.
 
     Also validates that valid tool start tags are properly closed with [[END]].
     Tool search order: memory/tools/ → saku/tools/ → MCP tools (external servers)
     """
+    # Normalize hallucinated formats before parsing (refs #28)
+    raw = _normalize_alternative_calls(raw)
     results: list[str] = []
 
     start_pattern = r"\[\[([A-Z_]+)\s*(.*?)\]\]"
