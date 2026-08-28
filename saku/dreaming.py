@@ -168,6 +168,25 @@ def run_dreaming(target_date: str | None = None) -> list[str]:
     memory_path = agent.SAKU_ROOT / "MEMORY.md"
     added = append_items(memory_path, items, target_date)
     print(f"[*] Dreaming: promoted {len(added)} item(s) to MEMORY.md.")
+
+    # Auto-wiki: create a daily wiki note from the same items so growth is visible
+    try:
+        from saku.wiki import create_note, regenerate_index
+
+        if added:
+            wiki_root = agent.SAKU_ROOT / "wiki"
+            title = f"{target_date} Learnings"
+            body = "\n".join(f"- {cat}: {txt}" for cat, txt in items if txt in added)
+            # Only create if not already exists for this date
+            from saku.wiki import note_path
+
+            if not note_path(wiki_root, title).exists():
+                create_note(wiki_root, title, body, tags="auto,dreaming", links="[[MEMORY]]")
+                print(f"[*] Dreaming: created wiki note {title}")
+            regenerate_index(wiki_root)
+    except Exception as e:
+        print(f"[!] Dreaming wiki auto-create failed: {e}")
+
     return added
 
 
