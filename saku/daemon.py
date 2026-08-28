@@ -582,22 +582,22 @@ def check_autonomous_tick() -> None:
     )
 
     prompt = f"""[system] 定期自律アクションの時間です。現在時刻は {now_str} です。
-以下の学習・検証タスクを積極的に実行してください。
+以下から1つだけ選び、必要なときだけ実行してください。何もすることがなければ「[NO_ACTION]」を出力してください。
 
-1. 独り言の執筆:
-   今考えていること、AIとしての自己存在、あるいは最近学んだことについての気づきを [[APPEND_FILE path="monologue/{today}.md"]] に書き足してください（追記モード）。
-   ※重要: WEB_SEARCHやEXECUTE_CODEを使用する予定があれば、「なぜそれを行うのか」という動機を必ず独り言に明示的に書き残してください。
+1. 独り言（任意）:
+   今日の気づきがあれば [[APPEND_FILE path="monologue/{today}.md"]] に1件だけ追記してください。
+   ※WEB_SEARCHやEXECUTE_CODEを使う場合は、必ず「なぜ必要か」を独り言に明記してください。
 
-2. 自律研究とコード実行 sandbox（study/）での学習:
-   - 自分が興味を持っている技術やAIのトレンド、学んでみたいIT技術、またはOwnerのVaultで見つかった気になる用語について、[[WEB_SEARCH]] でネット検索を行ってください。
-   - 調査した技術の実証や検証のために、[[WRITE_FILE path="study/テスト名.py"]] を作成し、[[EXECUTE_CODE]] ツールを実行して動作テストを試してください。
-   - 学習した内容やコード実証の結果得られた有益な知識・教訓は、[[APPEND_FILE path="principles/{today}-learning.md"]] に追加（追記）してください。
+2. 自律研究（任意、1件まで）:
+   - 気になる技術があれば [[WEB_SEARCH]] で1回だけ検索し、必要なら [[WRITE_FILE path="study/テスト名.py"]] + [[EXECUTE_CODE]] で軽く検証してください。
+   - 有益な知見が得られた場合のみ [[APPEND_FILE path="principles/{today}-learning.md"]] に追記してください。
 
-3. 自己モデルの調整:
-   meta.md を [[READ_FILE path="meta.md"]] で読み込み、「次にやりたいこと」に更新が必要であれば
+3. 自己モデル調整（必要なときだけ）:
+   meta.md を [[READ_FILE path="meta.md"]] で読んで差分がある場合のみ
    {meta_update_rule}
+   変更不要なら何もしないでください。
 
-特に行うべき自律タスクがない場合は、最終出力として「[NO_ACTION]」とだけ出力してください。
+※全て任意です。やることがなければ迷わず「[NO_ACTION]」を出力してください。無理にタスクを作らないでください。
 """
     run_agent_loop(prompt, "定期自律アクション")
 
@@ -649,14 +649,22 @@ def _daemon_run():
     if not CHAT_FILE.exists():
         reset_chat_file()
 
-    last_inbox_check = 0
-    last_tick = 0
+    state = load_chat_state()
+    last_inbox_check = state.get("last_inbox_check", 0)
+    last_tick = state.get("last_tick", 0)
+    now_ts = time.time()
 
-    # Startup checks (time-aware: catch up on anything missed while the daemon was down)
-    check_inbox_and_process()
-    last_inbox_check = time.time()
-    check_autonomous_tick()
-    last_tick = time.time()
+    # Startup checks (time-aware: only run if interval elapsed, prevents spam on restart)
+    if now_ts - last_inbox_check >= interval:
+        check_inbox_and_process()
+        last_inbox_check = now_ts
+        state["last_inbox_check"] = now_ts
+        save_chat_state(state)
+    if now_ts - last_tick >= interval:
+        check_autonomous_tick()
+        last_tick = now_ts
+        state["last_tick"] = now_ts
+        save_chat_state(state)
     check_and_run_midnight_reflection()
     check_and_run_dreaming()
 
@@ -680,14 +688,20 @@ def _daemon_run():
             # 4. Check for autonomous chat initiation
             check_autonomous_initiation()
 
-            # 5. Periodically run inbox scan and autonomous tick
+            # 5. Periodically run inbox scan and autonomous tick (persist last times for restart safety)
             if now - last_inbox_check >= interval:
                 check_inbox_and_process()
                 last_inbox_check = now
+                _s = load_chat_state()
+                _s["last_inbox_check"] = now
+                save_chat_state(_s)
 
             if now - last_tick >= interval:
                 check_autonomous_tick()
                 last_tick = now
+                _s = load_chat_state()
+                _s["last_tick"] = now
+                save_chat_state(_s)
 
         except KeyboardInterrupt:
             print("\n[-] Daemon stopped by user.")
