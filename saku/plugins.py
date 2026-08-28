@@ -313,3 +313,160 @@ def load_mcp_servers(plugin: Plugin, data_dir: Path) -> tuple[list[McpServer], l
         except PluginError as e:
             reports.append(f"{plugin.name}/{name}: {e}")
     return servers, reports
+
+
+# ── SKILL.md (spec §6 / agentskills.io) ───────────────────
+class SkillError(Exception):
+    """Raised when a SKILL.md is invalid."""
+
+
+@dataclass
+class Skill:
+    """A validated Agent Skill from a plugin."""
+
+    name: str
+    description: str
+    body: str
+    plugin_name: str
+    skill_dir: Path
+    frontmatter: dict
+    warnings: list[str] = field(default_factory=list)
+
+
+def _parse_frontmatter(text: str) -> tuple[dict, str, list[str]]:
+    """Parse YAML frontmatter ``---`` block at the start of *text*.
+
+    Returns (frontmatter_dict, body, warnings). Raises SkillError if the
+    frontmatter is missing or malformed. No external YAML dependency: a
+    minimal ``key: value`` parser sufficient for the spec's required fields.
+    """
+    warnings: list[str] = []
+    if not text.startswith("---"):
+        raise SkillError("SKILL.md must start with YAML frontmatter '---'")
+    # Find closing ---
+    end = text.find("\n---", 3)
+    if end == -1:
+        raise SkillError("SKILL.md frontmatter not closed with '---'")
+    fm_raw = text[3:end].strip()
+    body = text[end + 4 :].lstrip("\n")
+
+    fm: dict = {}
+    lines = fm_raw.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i].rstrip()
+        if not line or line.lstrip().startswith("#"):
+            i += 1
+            continue
+        if ":" not in line:
+            warnings.append(f"ignored frontmatter line without ':': {line!r}")
+            i += 1
+            continue
+        key, val = line.split(":", 1)
+        key = key.strip()
+        val = val.strip()
+        # Strip surrounding quotes
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+            val = val[1:-1]
+        if val == "":
+            # Possible block list: collect following "- item" lines
+            items: list[str] = []
+            j = i + 1
+            while j < len(lines) and lines[j].strip().startswith("- "):
+                item = lines[j].strip()[2:].strip()
+                if len(item) >= 2 and item[0] == item[-1] and item[0] in ('"', "'"):
+                    item = item[1:-1]
+                items.append(item)
+                j += 1
+            if items:
+                fm[key] = items
+                i = j
+                continue
+            fm[key] = ""
+        elif val.startswith("[") and val.endswith("]"):
+            inner = val[1:-1].strip()
+            if not inner:
+                fm[key] = []
+            else:
+                fm[key] = [p.strip().strip('"').strip("'") for p in inner.split(",")]
+        else:
+            fm[key] = val
+        i += 1
+    return fm, body, warnings
+
+
+def load_skill(skill_dir: Path, plugin_name: str) -> Skill:
+    """Load and validate a single ``SKILL.md`` in *skill_dir*."""
+    md_path = skill_dir / "SKILL.md"
+    if not md_path.is_file():
+        raise SkillError(f"SKILL.md not found in {skill_dir}")
+    try:
+        text = md_path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise SkillError(f"SKILL.md unreadable: {e}") from e
+
+    fm, body, warnings = _parse_frontmatter(text)
+
+    name = fm.get("name")
+    description = fm.get("description")
+    if not isinstance(name, str) or not name:
+        raise SkillError("SKILL.md frontmatter requires 'name'")
+    if not isinstance(description, str) or not description:
+        raise SkillError("SKILL.md frontmatter requires 'description'")
+
+    expected = skill_dir.name
+    if name != expected:
+        raise SkillError(f"SKILL.md name {name!r} must match directory name {expected!r}")
+
+    # Allowed optional fields per spec; unknown fields are warned but not rejected
+    allowed = {"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
+    for k in sorted(set(fm) - allowed):
+        warnings.append(f"ignored unknown frontmatter field: {k}")
+
+    if not body.strip():
+        warnings.append("SKILL.md body is empty")
+
+    return Skill(
+        name=name,
+        description=description,
+        body=body,
+        plugin_name=plugin_name,
+        skill_dir=skill_dir,
+        frontmatter=fm,
+        warnings=warnings,
+    )
+
+
+def load_plugin_skills(plugin: Plugin) -> tuple[list[Skill], list[str]]:
+    """Discover ``skills/*/SKILL.md`` under *plugin*.
+
+    Invalid skills are skipped with a report; the plugin's other skills are
+    still loaded.
+    """
+    skills_dir = plugin.root / "skills"
+    if not skills_dir.is_dir():
+        return [], []
+    skills: list[Skill] = []
+    reports: list[str] = []
+    for d in sorted(skills_dir.iterdir()):
+        if not d.is_dir():
+            continue
+        try:
+            skills.append(load_skill(d, plugin.name))
+        except SkillError as e:
+            reports.append(f"{plugin.name}/{d.name}: {e}")
+    return skills, reports
+
+
+def load_all_plugin_skills(plugins_root: Path) -> tuple[list[Skill], list[str]]:
+    """Load all skills from all plugins under *plugins_root*."""
+    plugins_list, _ = load_plugins(plugins_root)
+    all_skills: list[Skill] = []
+    reports: list[str] = []
+    for p in plugins_list:
+        skills, rep = load_plugin_skills(p)
+        all_skills.extend(skills)
+        reports.extend(rep)
+    # Deterministic order
+    all_skills.sort(key=lambda s: (s.plugin_name, s.name))
+    return all_skills, reports
