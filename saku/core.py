@@ -396,6 +396,17 @@ def _build_static_sections() -> str:
                 "WIKI rules:\n"
                 "- notes live in wiki/ (one concept per note), linked via [[links]]\n"
                 "- after creating/updating notes, run op=\"index\" to refresh the index\n"
+                "- vault-wide: use root=\"../02_Reference\" etc. to write wiki outside memory (e.g. [[WIKI root=\"../02_Reference\" title=\"...\"]])\n"
+                "\n"
+                "To schedule a task via natural language:\n"
+                '[[SCHEDULE op="add" when="2026-08-29 10:00" task="レポートを作成"]]\n'
+                "[[END]]\n"
+                '[[SCHEDULE op="list"]]\n[[END]]\n'
+                '[[SCHEDULE op="remove" id="abc123"]]\n[[END]]\n'
+                "\n"
+                "SCHEDULE rules:\n"
+                "- when: \"YYYY-MM-DD HH:MM\" or natural phrase (natural phrases are kept pending)\n"
+                "- daemon executes due tasks and marks them done\n"
                 "\n"
                 "GIT rules:\n"
                 "- allowed: status, diff, add, commit, log, branch\n"

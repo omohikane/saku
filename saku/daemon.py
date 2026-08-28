@@ -470,6 +470,39 @@ def check_and_run_dreaming() -> None:
     except Exception as e:
         print(f"[!] Dreaming failed: {e}")
 
+
+# ── Scheduled tasks (chat-driven) ──────────────────────────
+def check_scheduled_tasks() -> None:
+    """Execute due entries in state/schedule.json (added via SCHEDULE tool)."""
+    sched_file = MEMORY_ROOT / "state" / "schedule.json"
+    if not sched_file.exists():
+        return
+    try:
+        items = json.loads(sched_file.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if not isinstance(items, list):
+        return
+    now = datetime.now()
+    updated = False
+    for it in items:
+        if it.get("status") != "pending":
+            continue
+        when_str = it.get("when", "")
+        try:
+            due = datetime.strptime(when_str, "%Y-%m-%d %H:%M")
+        except ValueError:
+            continue  # natural phrase — keep pending for future LLM parsing
+        if due <= now:
+            task = it.get("task", "")
+            print(f"[*] Scheduled task due: {when_str} -> {task[:50]}")
+            success, _ = run_agent_loop(task, f"scheduled:{it.get('id','')}")
+            it["status"] = "done" if success else "pending"
+            it["executed"] = now.strftime("%Y-%m-%d %H:%M")
+            updated = True
+    if updated:
+        sched_file.write_text(json.dumps(items, indent=2, ensure_ascii=False), encoding="utf-8")
+
 # ── Chat: archive ────────────────────────────────────────
 def check_chat_archive_if_needed(state: dict) -> None:
     turn_count = state.get("turn_count", 0)
@@ -661,6 +694,7 @@ def _daemon_run():
     state = load_chat_state()
     last_inbox_check = state.get("last_inbox_check", 0)
     last_tick = state.get("last_tick", 0)
+    last_schedule_check = 0
     now_ts = time.time()
 
     # Startup checks (time-aware: only run if interval elapsed, prevents spam on restart)
@@ -676,6 +710,8 @@ def _daemon_run():
         save_chat_state(state)
     check_and_run_midnight_reflection()
     check_and_run_dreaming()
+    check_scheduled_tasks()
+    last_schedule_check = now_ts
 
     while True:
         try:
@@ -693,6 +729,11 @@ def _daemon_run():
 
             # 3b. Dreaming: promote durable memories into MEMORY.md (once per day)
             check_and_run_dreaming()
+
+            # 3c. Scheduled tasks (chat-driven, every 60s)
+            if now - last_schedule_check >= 60:
+                check_scheduled_tasks()
+                last_schedule_check = now
 
             # 4. Check for autonomous chat initiation
             check_autonomous_initiation()

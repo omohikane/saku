@@ -14,7 +14,20 @@ from pathlib import Path
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     from saku.wiki import create_note, regenerate_index, update_link
 
-    wiki_root = base / "wiki"
+    # root param allows vault-wide wiki (e.g. root="../02_Reference" or "wiki")
+    # defaults to memory/wiki for backward compat
+    root = kwargs.get("root", "") or kwargs.get("path", "")
+    if root:
+        # Resolve relative to memory root; allow vault sibling paths like ../02_Reference
+        wiki_root = (base / root).resolve()
+        # Safety: must stay within vault (two levels up from memory) or memory itself
+        try:
+            vault_root = base.parent.parent.resolve()
+            wiki_root.relative_to(vault_root)
+        except ValueError:
+            return f"[ERROR] wiki root escapes vault: {root}"
+    else:
+        wiki_root = base / "wiki"
     op = kwargs.get("op", "")
 
     if op == "index":
