@@ -1,52 +1,57 @@
-# AGENTS.md — SAKU プロジェクト固有ルール
+# AGENTS.md — SAKU Project Rules
 
-グローバルルール（`~/.config/opencode/AGENTS.md`）に加えて、このリポジトリに適用するルール。
+Additional rules for this repository, on top of the global `~/.config/opencode/AGENTS.md`.
 
-## テスト
+## Language
 
-- **コード変更後は必ずテストを実行する**:
+- **Code, comments, internal docs, and agent-facing docs are English.** User-facing docs (e.g. `README.ja.md`, vault notes) remain Japanese.
+- This file, `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, etc. are English except where the user directly edits.
+
+## Tests
+
+- **Always run tests after code changes**:
   ```bash
   cd tests && for t in test_*.py; do uv run python "$t"; done
   ```
-  （`test_mcp_server.py` はstdioサーバのフィクスチャのため除外。サブディレクトリ `tests/security/` も含める）
-- CI（GitHub Actions）でも全テストが実行される。
+  (`test_mcp_server.py` is a stdio fixture, excluded. Include `tests/security/`.)
+- CI (GitHub Actions) runs all tests.
 
-## 個人データ保護
+## Personal Data Protection
 
-以下のファイル・ディレクトリは**ユーザーの個人データ**であり、明示的な指示がない限り**変更しない**:
+The following are **user's personal data** — do not modify without explicit instruction:
 
-- `memory/`（Obsidian vault: journal / monologue / principles / skills / wiki / MEMORY.md / meta.md など）
-- `config.toml`（`.gitignore` 済みのローカル設定）
-- `identity/genome.md`（個人の人格定義。マスターはvault側）
+- `memory/` (Obsidian vault: journal / monologue / principles / skills / wiki / MEMORY.md / meta.md etc.)
+- `config.toml` (local, `.gitignore`'d)
+- `identity/genome.md` (persona definition; master is in the vault)
 
-## コミット規約
+## Commit Conventions
 
-リポジトリの既存ログに合わせ、**タイプ接頭辞**を使う:
+Follow the existing log with **type prefixes**:
 
-- `feat:` 新機能 / `fix:` バグ修正 / `docs:` ドキュメント / `refactor:` リファクタ（挙動不変） / `test:` テスト / `chore:` 雑務 / `ci:` CI
+- `feat:` feature / `fix:` bugfix / `docs:` docs / `refactor:` refactor (no behavior change) / `test:` tests / `chore:` chores / `ci:` CI
 
-1コミット=1論理変更。挙動変更とリファクタは分ける。
+One logical change per commit. Do not mix behavior changes and refactors.
 
-## ブランチ運用
+## Branching
 
-- 作業ブランチは **`dev`**。`main` はリリース版。
-- 非自明なタスクはtopicブランチ（`feat/*` `refactor/*`）で作業し、テスト通過後にdevへ統合。
-- `main` への反映はPR経由（ユーザー指示時のみ）。
+- Working branch is **`dev`**. `main` is release.
+- Non-trivial tasks: topic branches (`feat/*` `refactor/*`), merge to `dev` after tests pass.
+- `main` is updated via PR only when the user instructs.
 
-## Issue運用（個人開発でも採用）
+## Issue Workflow (even for solo dev)
 
-バグ発見・調査・設計検討は **GitHub Issue で起票**してから対応する:
+File a **GitHub Issue** before fixing/investigating/designing:
 
-- バグ: 再現手順・エラー内容をissueに記録 → 修正ブランチ（`fix/*`）で対応 → `Closes #N` 付きPRでdevへ
-- 調査/設計（questionラベル）: 調査結果と次の予定をissueコメントに残す（再発時の再調査を防ぐ）
-- 自明な1行修正やtypo修正はissueなしで直接コミットしてよい
-- pushはユーザー手動（deny設定）。PR作成もユーザーか、明示指示時のみ
+- Bug: steps + error → `fix/*` branch → PR with `Closes #N` to `dev`
+- Research/design (`question` label): leave findings + next steps as comments
+- Trivial one-line/typo fixes may be committed directly without an issue
+- Push is manual (deny). PRs only by user or explicit instruction.
 
-## 実行環境
+## Runtime
 
-- venv（uv）で実行: `uv run python -m saku.cli <cmd>`
-- LLM設定は `config.toml` の `[llm]`（litellm等）。勝手に変更しない。
+- Run via venv (uv): `uv run python -m saku.cli <cmd>`
+- LLM settings are in `config.toml` `[llm]`. Do not change without instruction.
 
-## 開発方針
+## Development Policy
 
-- **ハードコード排除**: パス・閾値・保存先等の固定値は避け、 `config.toml`（`[wiki] root` `[memory] inbox_dir` `[plugins] root` 等）と対話（ツール引数）で可変にする。初回から可変実装を原則とする（`docs/DESIGN.md` 8 参照）。
+- **No hardcoding**: avoid fixed paths/thresholds/destinations. Make them configurable via `config.toml` (`[wiki] root` `[memory] inbox_dir` `[plugins] root` etc.) and via chat (tool args). Configurable from day one (see `docs/DESIGN.md` 8).

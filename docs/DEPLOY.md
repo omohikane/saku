@@ -1,95 +1,93 @@
-# DEPLOY — 起動とデプロイ
+# DEPLOY — Running and Deploying
 
-SAKUの起動方法と、常駐化（systemd）・専用VMでの運用方法。
+How to run SAKU and deploy it as a systemd service or on a dedicated VM.
 
-## 0. 環境準備（venv）
+## 0. Environment (venv)
 
-システムpythonは環境によっては外部管理（PEP 668）でpipが使えないため、
-**プロジェクトvenv（uv）**を使います:
+System Python may be externally managed (PEP 668) and block pip, so use the **project venv (uv)**:
 
 ```bash
 uv venv
-uv pip install -e ".[mcp]"   # mcpは任意（MCPサーバ接続をしないなら不要）
+uv pip install -e ".[mcp]"   # mcp is optional (skip if you don't use MCP servers)
 ```
 
-実行は `uv run python -m saku.ui` のように venv 経由で行います
-（`uv run` の代わりに `.venv/bin/python -m saku.ui` でも可）。
+Run via venv, e.g. `uv run python -m saku.ui`
+(`.venv/bin/python -m saku.ui` also works).
 
-## 1. 手動起動
+## 1. Manual Run
 
-リポジトリルートで実行:
+From the repo root:
 
 ```bash
-# Web UI + 自動ループ（daemon）を一緒に起動（推奨）
+# Web UI + autonomous loop (daemon) together (recommended)
 uv run python -m saku.ui
 
-# オプション
-uv run python -m saku.cli chat      # ターミナル対話のみ
-uv run python -m saku.cli daemon    # daemonのみ
-uv run python -m saku.cli dream     # dreaming（記憶昇格）を手動実行
-uv run python -m saku.ui --no-daemon  # Web UIのみ（自動ループなし）
+# Options
+uv run python -m saku.cli chat      # terminal chat only
+uv run python -m saku.cli daemon    # daemon only
+uv run python -m saku.cli dream     # run dreaming (memory promotion) manually
+uv run python -m saku.ui --no-daemon  # Web UI only (no autonomous loop)
 ```
 
-ブラウザで http://127.0.0.1:8787 を開く。
+Open http://127.0.0.1:8787 in your browser.
 
-## 2. メモリ（vault）の設定
+## 2. Memory (vault) Configuration
 
-`config.toml` の `[memory] root` でメモリの場所を指定します:
+Set the memory location in `config.toml` `[memory] root`:
 
 ```toml
 [memory]
-root = "memory"                          # リポジトリ内（デフォルト）
-root = "/path/to/vault/_saku/memory"     # 絶対パス（Obsidian vault等）
-root = "${SAKU_MEMORY_ROOT}"             # 環境変数（マシン間で可搬）
+root = "memory"                          # inside repo (default)
+root = "/path/to/vault/_saku/memory"     # absolute path (Obsidian vault etc.)
+root = "${SAKU_MEMORY_ROOT}"             # env var (portable across machines)
 ```
 
-環境変数は `${VAR}` 形式で展開されます。未設定の変数はそのまま残ります。
+Env vars are expanded as `${VAR}`. Unset vars are left as-is.
 
-初回は構造を作成します:
+Create the structure on first run:
 
 ```bash
-uv run python -m saku.cli setup            # 設定済みの [memory] root に作成
-uv run python -m saku.cli setup /path/to/vault/_saku/memory   # 明示指定
+uv run python -m saku.cli setup            # create at configured [memory] root
+uv run python -m saku.cli setup /path/to/vault/_saku/memory   # explicit path
 ```
 
-## 3. systemd での常駐（推奨）
+## 3. systemd Service (recommended)
 
-単一プロセスで Web UI + daemon を起動するユニットを同梱しています
-(`packaging/saku.service`)。
+A single-process unit for Web UI + daemon is bundled
+(`packaging/saku.service`).
 
 ```bash
-# 前提: リポジトリを /opt/saku に配置し、venv を作成
+# Prereq: repo at /opt/saku with venv
 cd /opt/saku
 uv venv
 uv pip install -e ".[mcp]"
 
-# サービスファイルを編集（WorkingDirectory / SAKU_MEMORY_ROOT / User 等）
+# Edit the service file (WorkingDirectory / SAKU_MEMORY_ROOT / User etc.)
 sudo cp packaging/saku.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now saku
 
-# 確認
+# Check
 journalctl -u saku -f
 systemctl status saku
 ```
 
-## 4. 専用VMでの運用
+## 4. Dedicated VM
 
-1. VM（Ubuntu等）に Python 3.11+ と uv を導入
-2. リポジトリを clone: `git clone ... saku && cd saku`
+1. Install Python 3.11+ and uv on the VM (Ubuntu etc.)
+2. Clone: `git clone ... saku && cd saku`
 3. `uv venv && uv pip install -e ".[mcp]"`
-4. `cp config.example.toml config.toml` して `[llm]` `[memory] root` を設定
-5. `uv run python -m saku.cli setup` でメモリ構造を作成
-6. 上記 systemd ユニットで常駐化
-7. 必要なら `[ui] host = "0.0.0.0"` にしてネットワーク公開（要セキュリティ考慮）
+4. `cp config.example.toml config.toml` and set `[llm]` `[memory] root`
+5. `uv run python -m saku.cli setup` to create memory structure
+6. Use the systemd unit above to run as a service
+7. If needed, set `[ui] host = "0.0.0.0"` to expose on the network (secure it)
 
-### ネットワーク公開時の注意
+### Notes on Network Exposure
 
-- 既定は `127.0.0.1`（ローカルのみ）
-- 外部公開する場合はリバースプロキシ + TLS + 認証を推奨（現在のWeb UIには認証なし）
-- MCPサーバ公開（Phase C）ではトークン認証を実装予定
+- Default is `127.0.0.1` (local only)
+- For external exposure, use reverse proxy + TLS + auth (current Web UI has no auth)
+- MCP server exposure (Phase C) will use token auth
 
-## 5. データのバックアップ
+## 5. Backup
 
-メモリはすべて Markdown ファイルのため、git や Obsidian Sync 等でそのまま
-バックアップ・同期できます。`memory/state/`（ログ・状態）は機械生成です。
+Memory is all Markdown, so you can back up / sync with git or Obsidian Sync. `memory/state/` (logs/state) is machine-generated.

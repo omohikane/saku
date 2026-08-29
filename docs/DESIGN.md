@@ -1,215 +1,209 @@
-# SAKU 再設計プラン（ビジョン統合版）
+# SAKU Redesign Plan (Vision Integrated)
 
-> この文書は再設計の設計方針を記録したものです。実装は `dev` ブランチで
-> フェーズごとに進めます。データ（`memory/` `identity/`）は変更せず、
-> コードのみ新構造へ再編します。
+> This document records the redesign's design policy. Implementation proceeds
+> phase by phase on the `dev` branch. Data (`memory/` `identity/`) is not changed;
+> only code is reorganized into the new structure.
 
-## ビジョン
+## Vision
 
-**家庭に住む、自律成長するパートナーAI**。
+**A self-growing partner AI that lives at home.**
 
-- **家庭内の機器・インフラ管理**: NOC/SOC（ネットワーク監視・異常検知）に加え、
-  **Matter / Home Assistant 等のスマートホーム機器管理**も対象
-- **プライバシー**: 個人情報をクラウドAPIに送らない。ローカルLLMで完結
-- **成長**: 毎日の記録・振り返り・学習（dreaming/wiki）で、自分専用の伴侶として育つ
-- 朔は自分で能力不足を判断し、子エージェントを生成して能力を作らせる
-- 複数ローカルLLMを状況に応じて使い分け、サブエージェントとして起動する
+- **Home device & infra management**: NOC/SOC (network monitoring/anomaly detection) plus
+  **Matter / Home Assistant smart-home management**
+- **Privacy**: no personal data sent to cloud APIs. Runs entirely on local LLM
+- **Growth**: daily logs, reflection, and learning (dreaming/wiki) to grow as your dedicated companion
+- Saku judges its own capability gaps, spawns child agents, and builds abilities
+- Multiple local LLMs are used selectively and run as sub-agents
 
-## 設計原則
+## Design Principles
 
-1. **コア=Python（uv管理）、ツール=ポリグロット**
-   - コア言語とツール言語は分離する。ツールは任意言語で書ける（JSONプロトコル）
-2. **VRAM/RAM制約前提のコンテキスト管理**
-   - コンテキストを「小さく保つ＋オンデマンド想起＋圧縮」。フル履歴はディスク保持
-   - 作業予算は `[llm.instances.*]` ごとに持つ（モデルごとにコンテキスト幅が異なる）
-3. **プロンプト分離**
-   - 固定prefix（identity/genome/capabilities）＋可変suffix（時刻/状態）
-   - llama.cpp cache reuse / APIキャッシュ効率化のため冒頭を固定する
-4. **ファイルベース記憶（Markdown）維持**
-   - git管理・Obsidian互換・平文のまま
-5. **MCP双方向**
-   - クライアント（外部サービス接続・ツール動的発見）＋サーバ（外部から操作可能）
-   - 認可はトークン認証＋既存scope制約
-6. **承認境界**
-   - 読み取り系=自動、破壊的操作=`request_list.md` 経由でOwner承認必須
-7. **LLM設定は per-call**
-   - グローバル廃止。マルチインスタンス・子エージェント別LLMが可能に
-8. **ハードコード排除 — 設定と対話で可変に**
-   - パス・閾値・保存先などの固定値は避け、 `config.toml`（`[wiki] root` `[memory] inbox_dir` `[plugins] root` 等）で可変にする。 `${VAR}` 展開にも対応
-   - ツールは `root`/`path` 等の引数で vault内の任意場所を指定可能にし、AIが chat経由で場所を選べるようにする
-   - 新機能追加時は「固定値で実装→後で可変化」ではなく、初回から config/引数で可変にする
+1. **Core = Python (uv), Tools = Polyglot**
+   - Separate core language and tool language. Tools can be written in any language (JSON protocol)
+2. **Context Management under VRAM/RAM Constraints**
+   - Keep context "small + on-demand recall + compression". Full history stays on disk
+   - Working budget per `[llm.instances.*]` (varies by model)
+3. **Prompt Separation**
+   - Fixed prefix (identity/genome/capabilities) + volatile suffix (time/state)
+   - Keep the prefix stable for llama.cpp cache reuse / API prefix-caching
+4. **File-Based Memory (Markdown)**
+   - Git-tracked, Obsidian-compatible, plain text
+5. **MCP Bidirectional**
+   - Client (external service connection + dynamic tool discovery) + Server (expose externally)
+   - Auth via token + existing scope constraints
+6. **Approval Boundary**
+   - Reads = automatic, destructive ops = require Owner approval via `request_list.md`
+7. **LLM Config per Call**
+   - No global. Multi-instance and per-child-agent LLMs possible
+8. **No Hardcoding — Configurable via Config and Chat**
+   - Avoid fixed paths/thresholds/destinations. Make them configurable via `config.toml` (`[wiki] root` `[memory] inbox_dir` `[plugins] root` etc.) with `${VAR}` expansion
+   - Tools accept `root`/`path` args to address any vault location, so the AI can choose via chat
+   - New features are configurable from day one, not "hardcode now, make configurable later"
+9. **Language**
+   - Code, comments, internal docs, prompts, and agent-facing docs are English. User-facing docs (e.g. `README.ja.md`, vault notes) remain Japanese
 
-## ターゲット構造
+## Target Structure
 
 ```
-saku/                     # パッケージ（旧 src/）
+saku/                     # package (former src/)
   cli.py                  # interactive / daemon / ui / mcp serve
-  config.py               # 設定+バリデーション（[context][llm.instances][mcp][ui][ops]）
-  llm.py                  # chat_stream(messages, llm_cfg) / プロファイル / インスタンス
-  agent_loop.py           # 共通ループ（朔・子エージェント共用。LLM設定を引数で受ける）
-  context.py              # 作業予算・プロンプト固定/可変分離・コンパクション・ツール結果pruning
-  memory.py               # ファイル記憶アクセス層（MEMORY.md含む）
-  dreaming.py             # 短期シグナル→スコア→MEMORY.md/wiki へ昇格
-  transport.py            # [[TOOL]]+ポリグロットツール+MCPの変換・ディスパッチ
-  mcp_server.py           # 記憶/ツール/会話をMCP公開（トークン+scope）
-  channels/               # チャネル抽象化
+  config.py               # settings+validation ([context][llm.instances][mcp][ui][ops])
+  llm.py                  # chat_stream(messages, llm_cfg) / profiles / instances
+  agent_loop.py           # shared loop (Saku + children, LLM config via args)
+  context.py              # working budget, prompt fixed/volatile split, compaction, tool pruning
+  memory.py               # file memory access layer (incl. MEMORY.md)
+  dreaming.py             # short-term signals → scoring → MEMORY.md/wiki promotion
+  transport.py            # [[TOOL]] + polyglot + MCP conversion/dispatch
+  mcp_server.py           # expose memory/tools/chat via MCP (token+scope)
+  channels/               # channel abstraction
     base.py               # send / receive / state
-    chatmd.py             # ファイルベース（レガシー。オプション）
-    webui.py              # Web UI（SSE）
-    discord.py            # Discord（将来・後続）
-  daemon.py               # スケジューラ（監視・コンパクション・dreaming・reflect）
-  reflect.py              # 夜間振り返り
-  tools/                  # 組み込みツール（旧 system_tools/）
+    chatmd.py             # file-based (legacy, optional)
+    webui.py              # Web UI (SSE)
+    discord.py            # Discord (future)
+  daemon.py               # scheduler (monitoring/compaction/dreaming/reflect)
+  reflect.py              # nightly reflection
+  tools/                  # built-in tools (former system_tools/)
 
 memory/
-  MEMORY.md               # 長期記憶（新設）
-  meta.md                 # 自己モデル（維持）
-  wiki/                   # 自己整理知識ベース（新設・Phase D）
-  children/<name>/        # 子エージェント（identity+manifest+使用LLM）
+  MEMORY.md               # long-term memory (new)
+  meta.md                 # self-model (kept)
+  wiki/                   # self-organized knowledge base (new, Phase D)
+  children/<name>/        # child agents (identity+manifest+LLM)
   journal/ monologue/ principles/ skills/ study/ chat.md ...
 ```
 
-## チャネル抽象化
+## Channel Abstraction
 
-- `[channels] enabled` で送受信先を選択（webui / chatmd / discord）
-- `[channels] proactive` で問いかけ・アラートの送信先を選択
-- 問いかけ・アラート・request_listエスカレーションは設定で選んだチャネルに届く
-- chat.md は移行期間デフォルト有効のレガシーチャネル。後で無効化可能
-- 各チャネルは独自の状態を持つ
+- `[channels] enabled` selects send/receive destinations (webui / chatmd / discord)
+- `[channels] proactive` selects where proactive messages/alerts are sent
+- Proactive messages, alerts, and request_list escalations go to the configured channel
+- chat.md remains the default legacy channel for the migration period, can be disabled later
+- Each channel has its own state
 
-## 記憶の3階層
+## Memory Layers (3)
 
 ```
-① raw（時間順・生）        journal/ monologue/
-② distilled（耐久・構造化） wiki/ principles/ skills/
-③ self-model（自己像）      meta.md MEMORY.md
+① raw (chronological)      journal/ monologue/
+② distilled (durable)      wiki/ principles/ skills/
+③ self-model               meta.md MEMORY.md
 ```
 
-- `wiki/` = 1概念1ノート（Zettelkasten式）+ `[[リンク]]` + タグ + 出典参照 + index
-- dreaming/reflection は②と③に分配して昇格
-- 重要度判定（surprise metric的思想）・減衰（TTL的レビュー）・統合（リンク更新）・digest階層
+- `wiki/` = one concept per note (Zettelkasten) + `[[links]]` + tags + source + index
+- dreaming/reflection promote to ② and ③
+- Importance scoring (surprise-metric-like), decay (TTL review), consolidation (link update), digest hierarchy
 
-## Phase
+## Phases
 
-### Phase A — 基盤
-- `saku/` パッケージ化（pyproject.toml + uv）
+### Phase A — Foundation
+- `saku/` packaging (pyproject.toml + uv)
 - `config.py`: `[context]` `[llm.instances]` `[mcp]` `[ui]` `[ops]` `[channels]`
-- `llm.py` を per-call 設定にリファクタ（グローバル廃止）
-- 既存挙動（saku_core/daemon/reflect）を維持したままモジュール分割
+- `llm.py` per-call refactor (remove global)
+- Split modules while keeping existing behavior (saku_core/daemon/reflect)
 
-### Phase B — 会話
-- `agent_loop.py` 共通化（朔・daemon・reflect・UI共用）
-- `context.py`: プロンプト分離・作業予算・ツール結果pruning・自動コンパクション
-- チャネル抽象化 + Web UI（FastAPI + SSE ストリーミング・ツール実行表示・Markdown）
-- chat.md はレガシーチャネルとして維持
+### Phase B — Conversation
+- `agent_loop.py` shared (Saku/daemon/reflect/UI)
+- `context.py`: prompt separation, working budget, tool pruning, auto-compaction
+- Channel abstraction + Web UI (stdlib + SSE streaming, tool display, Markdown)
+- Keep chat.md as legacy channel
 
-### Phase C — 能力
-- ポリグロットツール: `tool.toml` マニフェスト + JSONプロトコル
-  - Python=in-process、他言語（node/shell/rust等）=subprocess
-  - EXECUTE_CODE も言語指定対応
-- MCP双方向: クライアント（外部サーバ接続・tools/list動的発見）+ サーバ（token+scope認可）
+### Phase C — Capabilities
+- Polyglot tools: `tool.toml` manifest + JSON protocol
+  - Python = in-process, others (node/shell/rust) = subprocess
+  - EXECUTE_CODE with language param
+- MCP bidirectional: client (external server + tools/list discovery) + server (token+scope)
 
-### Phase D — 成長
-- 子エージェント: `memory/children/<name>/` に identity + `llm` 指定
-  - `SPAWN_CHILD` / `DELEGATE` ツールで生成・移譲
-  - `agent_loop` を子の identity/scope/LLM で再帰起動
-- 記憶3階層: `MEMORY.md` + `wiki/` + `dreaming.py`
-- スキル自己改善（手順を skills/ へ自動生成）
+### Phase D — Growth
+- Child agents: `memory/children/<name>/` with identity + `llm` pin
+  - `SPAWN_CHILD` / `DELEGATE` to spawn/delegate
+  - Recursively run `agent_loop` with child's identity/scope/LLM
+- Memory layers: `MEMORY.md` + `wiki/` + `dreaming.py`
+- Self-improving skills (auto-generate procedures to skills/)
 
-### Phase E — 運用（ホームNOC/SOC）
-- 監視ツール（死活・リソース・ログ分析）+ `[ops]` 承認境界
-- アラート経路（選択チャネル通知 + request_list エスカレーション）
-- インシデント記録 → 振り返り → principles/ へ教訓化
-- **監視 ≠ LLM**: ヘルスチェックは非LLM高速パス、LLMは分析・インシデント対応のみ
-- 段階導入: 監視対象1台から開始し、ツールと設定の追加で拡張
-- 子エージェント分業例: NOC担当「見張り番」/ SOC担当「番人」/ バックアップ担当「庭師」
+### Phase E — Operations (Home NOC/SOC)
+- Monitoring tools (liveness/resources/log analysis) + `[ops]` approval boundary
+- Alert routing (selected channel + request_list escalation)
+- Incident logging → reflection → lessons to principles/
+- **Monitoring ≠ LLM**: health checks are fast non-LLM path, LLM only for analysis/incident
+- Roll out incrementally from one host, expand via tools+config
+- Child division example: NOC "watcher" / SOC "guardian" / backup "gardener"
 
-## 横断の考慮点
+## Cross-Cutting Concerns
 
-1. 既存ツール（`memory/tools/*.py` の `run(base,path,body,**kwargs)`）と既存テストの互換・移行パス
-2. daemon と Web UI の実行排他（ループ直列 or llama.cppスロット並列）
-3. chat.md と Web UI の書き込み衝突回避（チャネル抽象化で解決）
-4. 認証情報管理（`[ops]` のSSHキー・トークン。gitignore・scope分離）
-5. EXECUTE_CODE ポリグロット化に伴うサンドボックス強化（タイムアウト+scope+ネットワーク遮断、Dockerは将来）
-6. LLMなしのテスト設計（chat_stream のモック）
-7. コンテキスト予算はインスタンス別
-8. リトライ/劣化モード・子エージェント失敗時の伝播
-9. ドキュメント更新（README ja/en・ARCHITECTURE・クイックスタートの `saku` CLI化）
-10. 未来検討: SQLite FTS5メモリ検索 / MCPサーバTLS / 外部プッシュ通知 / Dockerサンドボックス
+1. Compatibility/migration for existing tools (`memory/tools/*.py` `run(base,path,body,**kwargs)`) and tests
+2. Daemon vs Web UI mutual exclusion (serial loop vs llama.cpp slot parallelism)
+3. chat.md vs Web UI write collision (solved via channel abstraction)
+4. Credential handling (`[ops]` SSH keys/tokens, gitignore/scope separation)
+5. EXECUTE_CODE sandbox hardening with polyglot (timeout+scope+network block, Docker future)
+6. Tests without LLM (mock chat_stream)
+7. Per-instance context budget
+8. Retry/degraded mode and child failure propagation
+9. Docs update (README ja/en, ARCHITECTURE, quickstart `saku` CLI)
+10. Future: SQLite FTS5 memory search / MCP server TLS / external push / Docker sandbox
 
-## コア機能の引き継ぎ（廃止しない）
+## Core Features to Keep
 
-| 機能 | 現行実装 | 新設計での位置 |
+| Feature | Current | New Location |
 |---|---|---|
-| ブログ執筆 | システムプロンプト「Blog Publishing Workflow」+ skills/blog_writing.md + request_list承認 | プロンプト固定prefixに維持 |
-| 独り言 | daemon自律ティックが monologue/YYYY-MM-DD.md へ追記 | daemonスケジュール維持・dreamingの昇格元 |
-| 問いかけ（自発発話） | check_autonomous_initiation / saku_self_initiate | チャネル抽象化（proactive送信先）に移行 |
+| Blog writing | System prompt "Blog Publishing Workflow" + skills/blog_writing.md + request_list approval | Keep in prompt fixed prefix |
+| Monologue | Daemon tick appends to monologue/YYYY-MM-DD.md | Keep daemon schedule, source for dreaming |
+| Proactive ask | check_autonomous_initiation / saku_self_initiate | Move to channel abstraction (proactive destinations) |
 
-## 参考リソース
+## References
 
-- Hermes Agent（Nous Research）: スキル自己改善ループ・プロンプト3層（stable→context→volatile）
-- OpenClaw: compaction/pruning/context engine・Dreaming昇格・MCP双方向・チャネルGateway
-- Google Titans / Memory Bank: surprise metric（重要度判定）・TTL減衰・consolidation
-- A-MEM: Zettelkastenをエージェント記憶へ応用（wiki/ の基礎）
+- Hermes Agent (Nous Research): skill self-improvement loop, prompt layers (stable→context→volatile)
+- OpenClaw: compaction/pruning/context engine, Dreaming promotion, MCP bidirectional, channel Gateway
+- Google Titans / Memory Bank: surprise metric, TTL decay, consolidation
+- A-MEM: Zettelkasten for agent memory (wiki basis)
 
 ---
 
-## 実装状況（dev ブランチ）
+## Implementation Status (dev branch)
 
-| Phase | 内容 | 状態 |
+| Phase | Content | Status |
 |---|---|---|
-| A | `saku/` パッケージ化・`config.py`・`llm.py` per-call化 | ✅ 完了 |
-| A-2 | レガシー `src/` を `saku/` へ統合（core/daemon/reflection/tools）・`tests/` 化 | ✅ 完了 |
-| B-1 | `agent_loop.py` 共通化・`context.py`（予算/pruning/コンパクション）・`transport.py`・`thinking.py` | ✅ 完了 |
-| B-2 | プロンプト固定prefix/可変suffix分離（静的キャッシュ） | ✅ 完了 |
-| B-3 | Web UI（stdlib・SSEストリーミング）＋daemonのproactive→UI配信 | ✅ 完了 |
-| — | 運用: `saku setup`・環境変数展開・systemd/DEPLOY・README更新 | ✅ 完了 |
-| — | 出力改善: ツール構文の非表示・繰り返し防止 | ✅ 完了 |
-| B-4 | チャネル抽象化（`saku/channels/`・chatmd分離） | 後回し（Discordをやる時に）。対話/成長/処理の層分離に活用 |
-| C-1 | ポリグロットツール | 保留（必要になるまで。ローカルLLM前提ならPythonで十分の可能性） |
-| C-2 | MCPクライアント（外部サーバ接続・`tools/list`動的発見・`[[TOOL]]`ディスパッチ） | ✅ 完了 |
-| C-3 | MCPサーバ（SAKUのメモリ/ツールを公開・Bearerトークン認証・PathPolicy scope） | ✅ 完了 |
-| D-1 | `MEMORY.md` 導入 + `dreaming.py`（journal/monologue→重要度→昇格） | ✅ 完了 |
-| D-2 | `wiki/` 自己整理知識ベース（ノート作成・リンク・インデックス） | ✅ 完了 |
-| D-3 | 子エージェント基盤（`SPAWN_CHILD`/`DELEGATE`・`children/`・委譲深度ガード） | ✅ 完了（インフラ。自律的な生成・活用は段階的に） |
-| E | ホームNOC/SOC | 未着手 |
+| A | `saku/` packaging, `config.py`, `llm.py` per-call | ✅ Done |
+| A-2 | Legacy `src/` → `saku/` integration, `tests/` | ✅ Done |
+| B-1 | `agent_loop.py`, `context.py`, `transport.py`, `thinking.py` | ✅ Done |
+| B-2 | Prompt fixed prefix / volatile suffix split (static cache) | ✅ Done |
+| B-3 | Web UI (stdlib, SSE) + daemon proactive→UI | ✅ Done |
+| — | Ops: `saku setup`, env expansion, systemd/DEPLOY, README | ✅ Done |
+| — | Output: hide tool syntax, loop prevention | ✅ Done |
+| B-4 | Channel abstraction (`saku/channels/` / chatmd split) | Deferred (when Discord). Used for dialog/growth/processing separation |
+| C-1 | Polyglot tools | Deferred (Python sufficient for local LLM for now) |
+| C-2 | MCP client (external server + tools/list discovery) | ✅ Done |
+| C-3 | MCP server (expose memory/tools via Bearer + PathPolicy) | ✅ Done |
+| D-1 | `MEMORY.md` + `dreaming.py` (journal/monologue→scored→promotion) | ✅ Done |
+| D-2 | `wiki/` self-organized KB (create/link/index) | ✅ Done |
+| D-3 | Child agent infra (`SPAWN_CHILD`/`DELEGATE`, `children/`, depth guard) | ✅ Done (infra; autonomous use incremental) |
+| E | Home NOC/SOC | Not started |
 
-## 対話層 / 成長層 / 処理層 の分離（2026-08 検討）
+## Dialog / Growth / Processing Separation (2026-08)
 
-実運用での診断: chatもinboxも同じフル自己モデル（システムプロンプト約7650トークン）を
-毎回送信しており、「軽い会話ですぐ返したい」という要望と矛盾する。これを3層に分離する。
+Diagnosis: chat and inbox both sent the same full self-model (~7650 tokens) every time, contradicting "quick lightweight chat".
 
 ```
-対話層 (chat)   魂だけ引き継ぐライトプロンプト（soul/genome + 現在時刻のみ）
-                  重い記憶は会話後に非同期で想起。即応答を優先。
-成長層 (成長)   dreaming / reflection / wiki で記憶を「積むだけでなく整理する」
-                  積み重ねたままでは検索・想起の価値が下がる。consolidation（統合・減衰）を導入。
-処理層 (処理)   重い分析・長文は外部LLM / sub-agent / skill に委譲
-                  ローカルLLMのコンテキスト制約を、外部LLMや子エージェントでカバーする。
+Dialog (chat)     Light prompt (soul/genome + time only)
+                    Heavy memory recalled async after. Prioritize immediacy.
+Growth (growth)   dreaming / reflection / wiki — not just accumulation but consolidation
+                    Add importance scoring, TTL review, link consolidation.
+Processing        Heavy analysis/long docs delegated to external LLM / sub-agent / skill
+                    Cover local LLM (16GB VRAM, 32768 ctx) limits via delegation.
 ```
 
-- **対話層**: フル自己モデルは廃止せず、「対話用ライトプロンプト」を新設。魂（identity/soul.md,
-  genome.md）と現在時刻だけを引き継ぎ、memory/MEMORY/principles 等は対話中は読み込まない。
-  必要な記憶はツールでオンデマンド想起する。
-- **成長層**: 現在の dreaming は journal/monologue → MEMORY.md への昇格のみで、
-  古い記憶の整理・統合・減衰がない。これを強化する（重要度スコア・TTL的レビュー・リンク統合）。
-- **処理層**: ローカルLLM（16GB VRAM・32768 ctx）では長文分析・大量ファイル処理に限界がある。
-  重い処理は sub-agent（memory/children/）や外部LLMプロファイル（config.toml [llm.profiles]）へ
-  委譲する。例: inbox処理を外部LLM（cloud-deepseek等）で簡易実行 → ローカルLLMは対話に専念。
-- これにより DESIGN.md 冒頭の設計原則（コンテキストを小さく保つ）を実効化する。
+- **Dialog**: keep full model but add new light prompt (soul/genome+time only). No memory/principles in chat; fetch on demand via tools.
+- **Growth**: current dreaming only promotes journal/monologue → MEMORY.md, without整理/consolidation/decay. Enhance it.
+- **Processing**: local LLM cannot handle long analysis. Delegate heavy work to sub-agents (`memory/children/`) or external profiles (`config.toml [llm.profiles]`). e.g. inbox via cloud model, chat stays local.
+- This enforces the top design principle (keep context small).
 
-## 優先順位（見直し版・2026-08）
+## Priority (revised 2026-08)
 
-実運用でコンテキスト肥大（principles 91KB）が発生し、現状の文字数上限は対症療法である
-ことが判明した。そのため「能力強化」より先に「記憶の整理・再配置」を優先する。
+Context bloat (principles 91KB) showed the char-limit is a band-aid. "Organize memory" must come before "add capabilities".
 
-1. ~~**D-1 記憶整理**: `MEMORY.md` + `dreaming.py`~~ ✅ 完了
-2. ~~**D-2 知識ベース**: `wiki/`（Zettelkasten式・リンク更新）~~ ✅ 完了
-3. **D-3 子エージェント**: `children/`・`SPAWN_CHILD`/`DELEGATE`
-4. **C-2 MCPクライアント**: 外部サーバ接続（ホーム連携・Phase Eの前提）
-5. **C-3 MCPサーバ**: トークン+scope認可で公開
-6. **B-4 チャネル抽象化**: Discord等の追加チャネルが必要になった時に
-7. **C-1 ポリグロット**: 保留
+1. ~~**D-1 Memory**: `MEMORY.md` + `dreaming.py`~~ ✅ Done
+2. ~~**D-2 KB**: `wiki/` (Zettelkasten + links)~~ ✅ Done
+3. **D-3 Child agents**: `children/` + `SPAWN_CHILD`/`DELEGATE`
+4. **C-2 MCP client**: external server (prereq for home integration / Phase E)
+5. **C-3 MCP server**: token+scope
+6. **B-4 Channel abstraction**: when Discord etc. needed
+7. **C-1 Polyglot**: deferred
 
-Web UIは依存ゼロ（http.server + SSE）。詳細な経緯はコミットログを参照。
-
+Web UI is zero-dep (http.server + SSE). See commit log for details.
