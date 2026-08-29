@@ -38,6 +38,9 @@
    - パス・閾値・保存先などの固定値は避け、 `config.toml`（`[wiki] root` `[memory] inbox_dir` `[plugins] root` 等）で可変にする。 `${VAR}` 展開にも対応
    - ツールは `root`/`path` 等の引数で vault内の任意場所を指定可能にし、AIが chat経由で場所を選べるようにする
    - 新機能追加時は「固定値で実装→後で可変化」ではなく、初回から config/引数で可変にする
+9. **Language — 英語化原則**
+   - コード・コメント・内部ドキュメント・プロンプト・agent向けドキュメントは英語。ユーザーが直接触る箇所（`README.ja.md` や vault内のNote）以外は全て英語に統一する
+   - Code, comments, internal docs, prompts, and agent-facing docs are English. User-facing docs (e.g. `README.ja.md`, vault notes) remain Japanese
 
 ## ターゲット構造
 
