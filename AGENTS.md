@@ -46,3 +46,7 @@
 
 - venv（uv）で実行: `uv run python -m saku.cli <cmd>`
 - LLM設定は `config.toml` の `[llm]`（litellm等）。勝手に変更しない。
+
+## 開発方針
+
+- **ハードコード排除**: パス・閾値・保存先等の固定値は避け、 `config.toml`（`[wiki] root` `[memory] inbox_dir` `[plugins] root` 等）と対話（ツール引数）で可変にする。初回から可変実装を原則とする（`docs/DESIGN.md` 8 参照）。
