@@ -44,7 +44,7 @@ To keep `chat.md` clean and lightweight, the daemon implements an automated arch
   - No messages have been sent for a duration (default: **30 minutes**).
 - **Process**:
   1. The daemon loads the chat history.
-  2. SAKU runs an LLM task to summarize the chat, save any new learned rules under `principles/`, and update the `meta.md` self-model under the `## 最近の出来事` (Recent Events) section.
+  2. SAKU runs an LLM task to summarize the chat, save any new learned rules under `principles/`, and update the `meta.md` self-model under the `## Recent Events` section.
   3. `chat.md` is reset to its default header template.
 
 ---
