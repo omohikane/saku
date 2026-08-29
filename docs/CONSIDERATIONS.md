@@ -1,57 +1,57 @@
-# CONSIDERATIONS — 検討リスト
+# CONSIDERATIONS — Open Design Questions
 
-実装前・決定前に議論が必要な設計課題を記録します。
-各項目: **課題 → 背景 → 選択肢 → 状態（未検討 / 検討中 / 決定）**
-
----
-
-## 1. メモリ検索の方式（オンデマンド化 vs RAG）
-
-- **状態**: 未検討
-- **背景**: ローカルLLMの評価で「コンテキスト肥大への対策が必要」と指摘。現在は `MEMORY.md`/`principles`/`skills` を**文字数上限で切り詰めた直近分**を毎回埋め込み済み。さらに「必要になったら検索して引く」オンデマンド化を検討したい。
-- **選択肢**:
-  - A) 軽量オンデマンド: `SEARCH_NOTES`（grepベース）をシステムプロンプトの指示で使い、常時埋め込みを最小化。依存追加なし
-  - B) ベクターDB/RAG: 埋め込みモデル＋ベクターDB（SQLite FTS5 / sqlite-vec / 外部DB）。精度は高いが依存と複雑さが増す
-  - C) ハイブリッド: 直近少量＋オンデマンド検索
-- **論点**: ローカル・プライバシー優先の方針では A/C が費用対効果大。Bは記憶が本当に膨張してから。**モデルが検索ツールを確実に呼ぶか**（ローカルモデルの信頼性）が課題。
-
-## 2. 自律コード実行のサンドボックス（Docker）
-
-- **状態**: 未検討（将来）
-- **背景**: `EXECUTE_CODE` が `study/` 内でsubprocess実行。5秒タイムアウト＋パスscopeはあるが、**コンテナ等の分離はなし**。ローカルLLMの評価で「特権昇格・ファイルシステムアクセスのリスク」と指摘。
-- **選択肢**:
-  - A) 現状維持（5秒タイムアウト＋study/ scope）
-  - B) Dockerコンテナで隔離（各実行をコンテナ内・リソース制限付き）
-  - C) 専用VM移行時（Phase E）にコンテナ前提へ
-- **論点**: コンテナ化はセットアップと実行コストが増す。自律実行の権限をどこまで与えるか（`[ops]`承認境界と連動）。
-
-## 3. ファイルへの同時アクセス（ロック）
-
-- **状態**: 未検討（低優先）
-- **背景**: daemon / Web UI / 外部エディタ（Obsidian）が同じMarkdownを触る可能性。現在はmtime追跡（`chat_state.json`）で緩和。単一ユーザー前提では許容範囲だが、競合リスクはある。
-- **選択肢**:
-  - A) 現状維持（単一ユーザー・mtime追跡）
-  - B) ファイルロック（`fcntl`）で書き込みを直列化
-  - C) チャネル抽象化（Phase B-4）導入時に書き込み経路を一本化
-- **論点**: 複数プロセス（UI + daemon を別々に起動）が増えると問題が顕在化する。B-4と合わせて検討。
-
-## 4. 評価基盤の拡充（LLMあり）
-
-- **状態**: 未検討
-- **背景**: `evals/longitudinal/`（構造スナップショット）は実装済み。`tests/persona/` `tests/memory/` `tests/autonomy/` の**LLMありの定性的評価**は計画中。
-- **選択肢**:
-  - A) スナップショット比較（実装済み）を継続・運用
-  - B) LLMありの評価ハーネス（人格一貫性・記憶精度・誤記憶・失敗減少を時系列で測る）
-- **論点**: LLMあり評価は実行コスト（トークン）と、ローカルLLMのばらつき。結果の解釈基準をどう決めるか。
-
-## 5. RAG導入の時期
-
-- **状態**: 未検討
-- **背景**: ロードマップの「Memory store 抽象化レイヤー（SQLite, Vector DB）」。`MEMORY.md`・`principles`・`wiki` の蓄積が進み、grep検索で不十分になったら。
-- **論点**: トリガー（記憶量の閾値）を決めてから導入。1と連動。
+Record design questions that need discussion before implementation.
+Each item: **Question → Background → Options → Status (Open / In Progress / Decided)**
 
 ---
 
-## 追記方法
+## 1. Memory Search (On-Demand vs RAG)
 
-新たな検討課題が出たら、上記の形式で追記する。決定したら「状態」を「決定」に変え、実装はtodoへ移動する。
+- **Status**: Open
+- **Background**: Local LLM eval noted "context bloat needs mitigation". Currently `MEMORY.md`/`principles`/`skills` are truncated to the most recent N chars and embedded every turn. We want to move to on-demand recall ("search when needed").
+- **Options**:
+  - A) Lightweight on-demand: use `SEARCH_NOTES` (grep) via system-prompt instruction, minimize always-embedded content. No extra deps.
+  - B) Vector DB / RAG: embedding model + vector DB (SQLite FTS5 / sqlite-vec / external). More accurate but more deps/complexity.
+  - C) Hybrid: small recent + on-demand search
+- **Discussion**: For local-first/privacy, A/C has better cost/benefit. B only when memory truly bloats. Key question: **will the model reliably call the search tool** (local model reliability).
+
+## 2. Sandboxing Autonomous Code Execution (Docker)
+
+- **Status**: Open (future)
+- **Background**: `EXECUTE_CODE` runs as subprocess in `study/` with 5s timeout + path scope, but **no container isolation**. Local LLM eval flagged privilege-escalation / filesystem risks.
+- **Options**:
+  - A) Keep as is (5s timeout + study/ scope)
+  - B) Docker-isolated (per-run container, resource limits)
+  - C) Require container when moving to dedicated VM (Phase E)
+- **Discussion**: Containers add setup/run cost. How much autonomy to grant, and how it interacts with `[ops]` approval boundary.
+
+## 3. Concurrent File Access (Locking)
+
+- **Status**: Open (low priority)
+- **Background**: daemon / Web UI / external editor (Obsidian) may touch the same Markdown. Currently mitigated with mtime tracking (`chat_state.json`). Acceptable for single-user, but race risk remains.
+- **Options**:
+  - A) Keep as is (single-user + mtime)
+  - B) File locks (`fcntl`) to serialize writes
+  - C) Channel abstraction (Phase B-4) to single write path
+- **Discussion**: Becomes visible when multiple processes (UI + daemon separately) increase. Consider with B-4.
+
+## 4. Evaluation Harness (with LLM)
+
+- **Status**: Open
+- **Background**: `evals/longitudinal/` (structural snapshots) is done. **Qualitative with-LLM evals** (`tests/persona/` `tests/memory/` `tests/autonomy/`) are planned.
+- **Options**:
+  - A) Keep snapshot comparison (done) and operate it
+  - B) With-LLM harness (persona consistency, memory accuracy, false memory, failure reduction over time)
+- **Discussion**: With-LLM eval costs tokens and local LLM variance. How to define interpretation criteria.
+
+## 5. When to Introduce RAG
+
+- **Status**: Open
+- **Background**: Roadmap's "Memory store abstraction (SQLite, Vector DB)". When `MEMORY.md`/`principles`/`wiki` grow and grep becomes insufficient.
+- **Discussion**: Define trigger (memory size threshold) before introducing. Linked to #1.
+
+---
+
+## How to Add a New Item
+
+Add a new question in the same format. When decided, change **Status** to **Decided** and move implementation to TODO.
