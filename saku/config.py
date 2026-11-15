@@ -132,10 +132,16 @@ def load_profile(cfg: dict, name: str) -> "LlmConfig | None":
     prof = profiles.get(name)
     if prof is None:
         return None
+    # ${VAR} expansion keeps keys out of the file (the same rule as [memory] root).
+    # A variable that is not set would otherwise be sent literally as the bearer
+    # token, so an unresolved placeholder means "no key configured".
+    api_key = expand_env(prof.get("api_key", "") or "")
+    if "${" in api_key:
+        api_key = ""
     return LlmConfig(
         name=name,
         api_url=prof.get("api_url", ""),
-        api_key=prof.get("api_key") or _env_api_key(name),
+        api_key=api_key or _env_api_key(name),
         model=prof.get("model", ""),
         context_window=prof.get("context_window", 0),
         working_budget_tokens=prof.get("working_budget_tokens", 0),
@@ -156,7 +162,8 @@ def load_active_llm(cfg: dict) -> LlmConfig:
     return LlmConfig(
         name="legacy",
         api_url=llm_cfg.get("api_url", "http://127.0.0.1:8080/v1/chat/completions"),
-        api_key=llm_cfg.get("api_key") or os.environ.get("OPENAI_API_KEY", ""),
+        api_key=expand_env(llm_cfg.get("api_key", "") or "")
+        or os.environ.get("OPENAI_API_KEY", ""),
         model=llm_cfg.get("model", ""),
     )
 

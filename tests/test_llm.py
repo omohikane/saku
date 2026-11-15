@@ -94,6 +94,26 @@ def test_load_profile_reads_reasoning_effort():
     assert plain.reasoning_effort == ""
 
 
+def test_load_profile_expands_api_key_from_env():
+    import os
+
+    os.environ["SAKU_TEST_KEY"] = "sk-from-env"
+    try:
+        cfg = {
+            "llm": {
+                "profiles": {
+                    "d": {"api_url": "http://x", "api_key": "${SAKU_TEST_KEY}"}
+                }
+            }
+        }
+        assert cfg_mod.load_profile(cfg, "d").api_key == "sk-from-env"
+        del os.environ["SAKU_TEST_KEY"]
+        # An unset variable is not sent as a literal bearer token.
+        assert cfg_mod.load_profile(cfg, "d").api_key == ""
+    finally:
+        os.environ.pop("SAKU_TEST_KEY", None)
+
+
 def run_tests():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in tests:
