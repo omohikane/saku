@@ -9,6 +9,7 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 
 ### Added
 
+- Opt-in git sync for the memory root (`[git]`): commits only the memory pathspec, rebases and retries a rejected push, debounces bursts into one commit, and logs to `.git/saku-git.log`. `saku sync` runs it immediately; the agent loop and the daemon queue it in the background. See `docs/GIT_SYNC.md`.
 - Growth review for dreaming (#38): promoted `MEMORY.md` entries carry an importance score and a last-seen date (HTML comment, Obsidian-safe). Re-mentioning an entry reinforces it; stale low-score entries decay into an `Archive` section (moved, never deleted). Configured via `[dreaming]` (`review_enabled` / `ttl_days` / `min_score` / `archive_section`).
 - Light-prompt memory recall (#32): lines related to the current message are prefetched from `MEMORY.md` / `principles/` / `wiki/` and injected as a system message, so chat keeps continuity without the full prompt. Configured via `[recall]` (`enabled` / `items` / `max_chars` / `sources`). Wired into the Web UI chat and the daemon chat.md reply path.
 - `WEB_SEARCH` ranks distinct domains first (one aggregator can no longer fill every slot) and accepts `limit=` (1–10, default 5) (#31).

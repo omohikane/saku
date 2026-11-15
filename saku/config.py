@@ -386,3 +386,49 @@ def load_recall_config(cfg: dict) -> RecallConfig:
         max_chars=r.get("max_chars", 600),
         sources=list(r.get("sources", ["MEMORY.md", "principles/", "wiki/"])),
     )
+
+
+# ── Git Sync Config ─────────────────────────────────────
+# SAKU's memory can live inside a git repository (e.g. an Obsidian vault). When
+# enabled, writes are committed and pushed on a debounce so the vault stays in
+# sync without a second, conflicting sync mechanism.
+#
+# Disabled by default on purpose: the default memory root (`memory/`) sits inside
+# the SAKU code checkout, and committing there would mix agent memory into the
+# code history. Opt in explicitly with `[git] enabled = true`.
+@dataclass
+class GitConfig:
+    enabled: bool = False
+    root: str = ""  # repository root; "" = detect from the memory root
+    paths: list[str] = field(default_factory=list)  # repo-relative pathspecs; [] = memory root itself
+    debounce_seconds: int = 120  # at most one sync attempt per window
+    push: bool = True
+    remote: str = "origin"
+    branch: str = ""  # "" = current branch
+    ssh_command: str = ""  # e.g. "ssh -F ~/.ssh/config" when the system ssh config is broken
+    commit_prefix: str = "saku:"
+    timeout_seconds: int = 60
+    max_log_bytes: int = 200_000
+
+
+def load_git_config(cfg: dict) -> GitConfig:
+    g = cfg.get("git", {})
+    return GitConfig(
+        enabled=g.get("enabled", False),
+        root=expand_env(g.get("root", "")),
+        paths=list(g.get("paths", [])),
+        debounce_seconds=g.get("debounce_seconds", 120),
+        push=g.get("push", True),
+        remote=g.get("remote", "origin"),
+        branch=g.get("branch", ""),
+        ssh_command=expand_env(g.get("ssh_command", "")),
+        commit_prefix=g.get("commit_prefix", "saku:"),
+        timeout_seconds=g.get("timeout_seconds", 60),
+        max_log_bytes=g.get("max_log_bytes", 200_000),
+    )
+
+
+def get_git_config() -> GitConfig:
+    """Return the [git] config (re-read on every call; cheap toml parse)."""
+    cfg, _ = load_config()
+    return load_git_config(cfg)
