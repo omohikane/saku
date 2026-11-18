@@ -50,6 +50,7 @@ def run_agent_loop(
     on_status: Optional[Callable[[str], None]] = None,
     no_action_markers: Optional[list[str]] = None,
     log: Optional[Callable[[str], None]] = None,
+    should_stop: Optional[Callable[[], bool]] = None,
 ) -> LoopResult:
     """Run the common agent loop once.
 
@@ -60,6 +61,11 @@ def run_agent_loop(
     ``on_status`` reports coarse state changes ("thinking", "tool: NAME",
     "compacting context") so a UI can show that the agent is working rather than
     frozen. It is optional and silent when not given.
+
+    ``should_stop`` (#76) is consulted before every turn: when it returns
+    True the loop halts without another LLM call, so an external stop
+    signal (the kill switch) takes effect at the next turn boundary
+    instead of only when the whole run finishes. Silent when not given.
     """
     budget = llm_cfg.working_budget_tokens or DEFAULT_WORKING_BUDGET_TOKENS
     started_at = time.time()
@@ -80,6 +86,12 @@ def run_agent_loop(
     turn = 0
 
     while turn < max_turns:
+        # 0. External stop signal (#76): halt before spending another turn.
+        if should_stop is not None and should_stop():
+            if log:
+                log("agent loop halted by the kill switch")
+            break
+
         # 1. Shrink old tool results
         work = trim_old_tool_results(work, ctx)
 

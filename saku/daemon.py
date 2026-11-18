@@ -10,6 +10,11 @@ Runs in the background, waking up periodically to:
 5. Run midnight reflection at 2:00 AM using reflect.py.
 6. Scan the Vault Inbox (00_Inbox) for new/updated files.
 7. Run periodic autonomous ticks for self-study and monologue writing.
+
+Every autonomous action above honours the kill switch (#76): while the
+flag file ([killswitch] flag_file, default state/STOP) exists, none of
+them start, and the mail channel refuses to answer. Owner chat replies
+(item 1) are not autonomous and keep working.
 """
 
 import hashlib
@@ -25,6 +30,7 @@ from pathlib import Path
 
 from saku import core as agent
 from saku import dreaming
+from saku import killswitch
 from saku import mail as saku_mail
 from saku import persona
 from saku import reflection
@@ -39,6 +45,11 @@ _dcfg = agent._cfg.get("daemon", {})
 _mcfg = agent.saku_config.load_mail_config(agent._cfg)
 MAIL_ENABLED = _mcfg.enabled
 MAIL_POLL_SECONDS = max(5, _mcfg.poll_seconds)
+
+# Kill switch (#76): the flag's presence stops all autonomous operation.
+# The path is resolved once from config; the flag itself is statted fresh
+# at every gate (killswitch.is_stopped), never cached.
+KILLSWITCH_FLAG = agent.saku_config.resolve_killswitch_flag(agent._cfg, MEMORY_ROOT)
 
 CHAT_FILE = MEMORY_ROOT / "chat.md"
 STATE_FILE = MEMORY_ROOT / "state/processed_inbox.json"
@@ -142,6 +153,58 @@ def load_chat_state() -> dict:
 def save_chat_state(state: dict) -> None:
     CHAT_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     CHAT_STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+
+def killswitch_stopped() -> bool:
+    """True while the Owner's kill switch (#76) is engaged.
+
+    Every autonomous path consults this at action time. The check is a
+    fresh filesystem stat, so a flag dropped in by git pull — or removed
+    by `saku resume` — takes effect at the very next action.
+    """
+    return killswitch.is_stopped(KILLSWITCH_FLAG)
+
+
+def note_killswitch_transition(state: dict | None = None, *, baseline: bool = False) -> bool:
+    """Log a kill-switch state change, once per edge; returns the state.
+
+    Without this, a stopped Saku is indistinguishable from a quiet one:
+    the stop must be confirmable from the log, never silent (#76). On
+    engagement the Owner also gets one Web UI notice. ``baseline=True``
+    is for daemon startup: it records the current state and logs an
+    already-engaged switch, but sends no notice — a restart is not an
+    engagement event.
+    """
+    stopped = killswitch_stopped()
+    if state is None:
+        state = load_chat_state()
+    if state.get("killswitch_stopped") == stopped:
+        return stopped
+    state["killswitch_stopped"] = stopped
+    save_chat_state(state)
+    info = killswitch.read_info(KILLSWITCH_FLAG) or {}
+    if baseline:
+        if stopped:
+            logger.warning(
+                "[killswitch] daemon started with the switch ENGAGED (at=%s by=%s)",
+                info.get("at", ""), info.get("by", ""),
+            )
+            print("[!] Kill switch is ENGAGED: autonomous operation is stopped.")
+        return stopped
+    if stopped:
+        logger.warning(
+            "[killswitch] ENGAGED (at=%s by=%s reason=%s): autonomous operation stopped",
+            info.get("at", ""), info.get("by", ""), info.get("reason", ""),
+        )
+        print("[!] Kill switch ENGAGED: autonomous operation stopped.")
+        notify_webui(
+            "キルスイッチが作動しました。自律動作（自律 tick・自発発話・文通や talk への返信・"
+            "振り返り等）を停止しています。解除は Owner の `saku resume` でのみ行えます。"
+        )
+    else:
+        logger.info("[killswitch] released: autonomous operation resumed")
+        print("[*] Kill switch released: autonomous operation resumed.")
+    return stopped
+
 
 def reset_chat_file() -> None:
     CHAT_FILE.write_text(CHAT_RESET_HEADER, encoding="utf-8")
@@ -303,13 +366,23 @@ def run_agent_loop(
     light: bool = False,
     inbox_mode: bool = False,
     log_action: bool = True,
+    autonomous: bool = False,
 ) -> tuple[bool, str]:
     """Run Saku on a specific prompt, execute tools, and log results. Returns (success, visible_output).
 
     ``log_action=False`` suppresses the automatic ``save_autonomous_log`` entry. Chat
     turns set it because ``check_chat_and_reply`` journals the whole exchange itself;
     without this the same turn was written to the journal twice (#46).
+
+    ``autonomous=True`` marks a run nobody asked for in the moment (tick, inbox,
+    scheduled task, self-initiation): the kill switch (#76) refuses it at entry
+    and halts it at the next turn boundary if the switch engages mid-run. Chat
+    replies leave it False — they are the Owner's own conversation, not
+    autonomous operation, and the switch does not gate them.
     """
+    if autonomous and killswitch_stopped():
+        logger.info("[%s] skipped: kill switch engaged", log_action_name)
+        return False, ""
     if inbox_mode:
         system_prompt = agent.build_inbox_system_prompt()
     elif light:
@@ -337,6 +410,7 @@ def run_agent_loop(
         on_tool_result=on_tool_result,
         no_action_markers=NO_ACTION_MARKERS,
         log=lambda msg: logger.warning("[%s] %s", log_action_name, msg),
+        should_stop=killswitch_stopped if autonomous else None,
     )
 
     visible = _strip_no_action_markers(result.visible)
@@ -470,6 +544,8 @@ Ownerのメッセージ:
 # ── Chat: SAKU Self-Initiated message ──────────────────────
 def check_autonomous_initiation() -> None:
     """Self-initiate conversation if Owner is inactive for too long and SAKU has updates."""
+    if killswitch_stopped():
+        return
     if not CHAT_FILE.exists():
         return
 
@@ -512,6 +588,9 @@ def check_autonomous_initiation() -> None:
 
 def saku_self_initiate(reason: str) -> None:
     """Ask SAKU to autonomously write an opening message to Owner in chat.md."""
+    if killswitch_stopped():
+        print(f"[*] Self-initiation skipped: kill switch engaged ({reason})")
+        return
     state = load_chat_state()
     content = CHAT_FILE.read_text(encoding="utf-8")
 
@@ -544,7 +623,9 @@ def saku_self_initiate(reason: str) -> None:
 ※応答は必ず日本語で、最終回答のみ出力してください。「**SAKU**」や「**Owner**」は一切出力しないでください。
 """
 
-    _, saku_msg = run_agent_loop(prompt, f"自発的発話: {reason}", extra_history=chat_history)
+    _, saku_msg = run_agent_loop(
+        prompt, f"自発的発話: {reason}", extra_history=chat_history, autonomous=True
+    )
     if not saku_msg:
         return
 
@@ -556,6 +637,11 @@ def saku_self_initiate(reason: str) -> None:
     # initiation is dropped. An unfinished draft is moved — verbatim — behind
     # the new block, so it stays at the tail where it can still be completed
     # and detected, and the snapshot advances only over formatted content.
+    # The kill switch (#76) is re-checked at the same point: a stop engaged
+    # during generation drops the message instead of posting it.
+    if killswitch_stopped():
+        print(f"[*] Self-initiation dropped at append time: kill switch engaged ({reason})")
+        return
     state = load_chat_state()
     current = CHAT_FILE.read_text(encoding="utf-8")
     scan = scan_chat_region(current, state.get("last_content", ""))
@@ -625,6 +711,12 @@ def check_and_run_midnight_reflection(now: datetime | None = None) -> None:
     if now.hour < 2:
         return
     if state.get("last_reflection_date", "") == today_str:
+        return
+
+    # Kill switch (#76): skip WITHOUT recording the run date, so the
+    # reflection still fires after release instead of being lost for the day.
+    if killswitch_stopped():
+        print("[*] Midnight reflection skipped: kill switch engaged.")
         return
 
     print(f"[*] Midnight reflection triggered at {now.strftime('%H:%M')}...")
@@ -700,6 +792,11 @@ def check_and_run_weekly_review(now: datetime | None = None) -> None:
     if state.get("last_weekly_review_date", "") == today_str:
         return
 
+    # Kill switch (#76): skip without recording the run date (see reflection).
+    if killswitch_stopped():
+        print("[*] Weekly review skipped: kill switch engaged.")
+        return
+
     print(f"[*] Weekly review triggered at {now.strftime('%Y-%m-%d %H:%M')}...")
     try:
         result = weekly.run_weekly_review(now)
@@ -738,6 +835,11 @@ def check_and_run_dreaming() -> None:
     if state.get("last_dream_date", "") == today_str:
         return
 
+    # Kill switch (#76): skip without recording the run date (see reflection).
+    if killswitch_stopped():
+        print("[*] Dreaming skipped: kill switch engaged.")
+        return
+
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     print(f"[*] Dreaming triggered for {yesterday}...")
     try:
@@ -753,6 +855,8 @@ def check_and_run_dreaming() -> None:
 # ── Scheduled tasks (chat-driven) ──────────────────────────
 def check_scheduled_tasks() -> None:
     """Execute due entries in state/schedule.json (added via SCHEDULE tool)."""
+    if killswitch_stopped():
+        return  # due tasks stay pending and run after release
     sched_file = MEMORY_ROOT / "state" / "schedule.json"
     if not sched_file.exists():
         return
@@ -775,7 +879,7 @@ def check_scheduled_tasks() -> None:
         if due <= now:
             task = it.get("task", "")
             print(f"[*] Scheduled task due: {when_str} -> {task[:50]}")
-            success, _ = run_agent_loop(task, f"scheduled:{it.get('id','')}")
+            success, _ = run_agent_loop(task, f"scheduled:{it.get('id','')}", autonomous=True)
             it["status"] = "done" if success else "pending"
             it["executed"] = now.strftime("%Y-%m-%d %H:%M")
             updated = True
@@ -890,6 +994,8 @@ def save_processed_state(state: dict) -> None:
     STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
 def check_inbox_and_process() -> None:
+    if killswitch_stopped():
+        return  # files stay unprocessed and are picked up after release
     # The inbox location is configurable via [memory] inbox_dir (the layout varies
     # per person). Falls back gracefully if not present.
     inbox_dir = agent.saku_config.resolve_inbox_dir(agent._cfg, MEMORY_ROOT, agent._config_base)
@@ -917,7 +1023,7 @@ def check_inbox_and_process() -> None:
 この内容を分析し、あなたの知識ベース（principles/ や skills/）に追加すべき情報があれば書き込んでください。
 処理完了後は「[INBOX_PROCESSED]」と出力してください。
 """
-            success, _ = run_agent_loop(prompt, f"インボックス処理: {p.name}", inbox_mode=True)
+            success, _ = run_agent_loop(prompt, f"インボックス処理: {p.name}", inbox_mode=True, autonomous=True)
             if success:
                 # success means "handled" for inbox runs, including "nothing to save",
                 # so a no-op file is not re-read and re-sent to the LLM every scan.
@@ -947,6 +1053,9 @@ def check_mail() -> None:
 
 # ── Autonomous tick (Self-Study / Monologue) ──────────────
 def check_autonomous_tick() -> None:
+    if killswitch_stopped():
+        print("[*] Autonomous tick skipped: kill switch engaged.")
+        return
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     today = datetime.now().strftime("%Y-%m-%d")
     print(f"[*] Starting periodic autonomous tick at {now_str}...")
@@ -976,7 +1085,7 @@ def check_autonomous_tick() -> None:
 
 ※全て任意です。やることがなければ迷わず「[NO_ACTION]」を出力してください。無理にタスクを作らないでください。
 """
-    run_agent_loop(prompt, "定期自律アクション")
+    run_agent_loop(prompt, "定期自律アクション", autonomous=True)
 
 # ── Main ─────────────────────────────────────────────────
 def _acquire_lock() -> bool:
@@ -1027,6 +1136,19 @@ def _daemon_run():
         reset_chat_file()
 
     state = load_chat_state()
+
+    # Kill switch (#76): record the starting state (and say so once if the
+    # daemon comes up stopped), and warn loudly if a custom flag path has
+    # wandered somewhere SAKU's own file tools could remove it.
+    warn_rel = killswitch.tool_writable_relpath(agent._cfg, MEMORY_ROOT, KILLSWITCH_FLAG)
+    if warn_rel:
+        logger.warning(
+            "[killswitch] flag file %s is inside a tool-writable path; "
+            "SAKU's file tools could remove it", warn_rel,
+        )
+        print(f"│  [!] Kill switch flag is tool-writable: {warn_rel}")
+    note_killswitch_transition(state, baseline=True)
+
     last_inbox_check = state.get("last_inbox_check", 0)
     last_tick = state.get("last_tick", 0)
     last_schedule_check = 0
@@ -1055,6 +1177,11 @@ def _daemon_run():
         try:
             time.sleep(CHAT_POLL_SECONDS)
             now = time.time()
+
+            # 0. Kill switch (#76): notice engage/release edges once. The
+            # gates themselves stat the flag at action time; this is only
+            # the announcement, so a stop is never silent.
+            note_killswitch_transition()
 
             # 1. Always check chat for new Owner messages
             check_chat_and_reply()
