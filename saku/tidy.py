@@ -30,14 +30,19 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from saku.thinking import TOOL_BLOCK_RE
+from saku import provenance
 from saku import transport
 
 # Every metadata-comment shape dreaming has ever written into MEMORY.md:
 # the canonical "<!-- s:3 last:2026-08-30 -->", a score-only leak
 # "<!-- s:1 -->", and a last-only fragment "<!-- last:2026-08-30 -->".
+# Since #79 the canonical shape may carry provenance ("src:..."), alone or
+# after s:/last:; tidy recognises it so consolidation never drops an origin.
 _META_COMMENT_RE = re.compile(
     r"<!--\s*(?:s:(?P<score>\d+)(?:\s+last:(?P<last1>\d{4}-\d{2}-\d{2}))?"
-    r"|last:(?P<last2>\d{4}-\d{2}-\d{2}))\s*-->"
+    r"(?:\s+src:(?P<src1>[^\s>]+))?"
+    r"|last:(?P<last2>\d{4}-\d{2}-\d{2})(?:\s+src:(?P<src2>[^\s>]+))?"
+    r"|src:(?P<src3>[^\s>]+))\s*-->"
 )
 
 # A wiki note whose stem starts with a date is a daily dump, not a concept.
@@ -63,27 +68,32 @@ def _join_lines(lines: list[str], original: str) -> str:
 # ── MEMORY.md ────────────────────────────────────────────
 
 
-def _clean_entry(line: str, parsed: dict) -> tuple[str, int | None, str | None, str]:
+def _clean_entry(line: str, parsed: dict) -> tuple[str, int | None, str | None, str | None, str]:
     """Strip leaked metadata comments from one parsed entry.
 
-    Returns (text, score, last, rendered_line). Score/last are consolidated
+    Returns (text, score, last, src, rendered_line). Score/last are consolidated
     across *all* metadata comments found in the raw line: score is the max,
-    last is the newest. Values already parsed from a well-formed trailing
-    comment participate too. A value that appears nowhere stays None --
-    tidy never fabricates metadata.
+    last is the newest. Provenance refs (#79) are unioned in first-seen order --
+    tidy consolidates origins, it never drops or invents them. Values already
+    parsed from a well-formed trailing comment participate too. A value that
+    appears nowhere stays None -- tidy never fabricates metadata.
     """
     scores: list[int] = []
     lasts: list[str] = []
+    srcs: list[str | None] = []
     for m in _META_COMMENT_RE.finditer(line):
         if m.group("score"):
             scores.append(int(m.group("score")))
         last = m.group("last1") or m.group("last2")
         if last:
             lasts.append(last)
+        srcs.append(m.group("src1") or m.group("src2") or m.group("src3"))
     if parsed["score"] is not None:
         scores.append(parsed["score"])
     if parsed["last"]:
         lasts.append(parsed["last"])
+    srcs.append(parsed["src"])
+    src = provenance.union_srcs(*srcs)
 
     text = _META_COMMENT_RE.sub("", parsed["text"])
     text = re.sub(r"\s+", " ", text).strip()
@@ -92,10 +102,12 @@ def _clean_entry(line: str, parsed: dict) -> tuple[str, int | None, str | None, 
     if score is not None:
         from saku.dreaming import format_entry
 
-        rendered = format_entry(parsed["date"], text, score, last or parsed["date"])
+        rendered = format_entry(parsed["date"], text, score, last or parsed["date"], src=src)
+    elif src is not None:
+        rendered = f"- {parsed['date']}: {text} <!-- src:{src} -->"
     else:
         rendered = f"- {parsed['date']}: {text}"
-    return text, score, last, rendered
+    return text, score, last, src, rendered
 
 
 def tidy_memory_text(content: str) -> tuple[str, dict]:
@@ -120,7 +132,7 @@ def tidy_memory_text(content: str) -> tuple[str, dict]:
             items.append(line)
             continue
         if _META_COMMENT_RE.search(line):
-            text, score, last, rendered = _clean_entry(line, parsed)
+            text, score, last, src, rendered = _clean_entry(line, parsed)
             if rendered != line:
                 stats["cleaned"] += 1
             items.append(
@@ -130,6 +142,7 @@ def tidy_memory_text(content: str) -> tuple[str, dict]:
                     "text": text,
                     "score": score,
                     "last": last,
+                    "src": src,
                     "rendered": rendered,
                     "merged": False,
                 }
@@ -142,6 +155,7 @@ def tidy_memory_text(content: str) -> tuple[str, dict]:
                     "text": parsed["text"],
                     "score": parsed["score"],
                     "last": parsed["last"],
+                    "src": parsed["src"],
                     "rendered": line,
                     "merged": False,
                 }
@@ -164,6 +178,8 @@ def tidy_memory_text(content: str) -> tuple[str, dict]:
         keeper["score"] = max(present) if present else None
         lasts = [d for d in (keeper["last"], item["last"]) if d]
         keeper["last"] = max(lasts) if lasts else None
+        # A merged entry keeps every origin either copy recorded (#79).
+        keeper["src"] = provenance.union_srcs(keeper["src"], item["src"])
         keeper["merged"] = True
         item["dropped"] = True
         stats["merged"] += 1
@@ -177,8 +193,16 @@ def tidy_memory_text(content: str) -> tuple[str, dict]:
         elif item["merged"]:
             if item["score"] is not None:
                 lines.append(
-                    format_entry(item["date"], item["text"], item["score"], item["last"] or item["date"])
+                    format_entry(
+                        item["date"],
+                        item["text"],
+                        item["score"],
+                        item["last"] or item["date"],
+                        src=item["src"],
+                    )
                 )
+            elif item["src"] is not None:
+                lines.append(f"- {item['date']}: {item['text']} <!-- src:{item['src']} -->")
             else:
                 lines.append(f"- {item['date']}: {item['text']}")
         else:

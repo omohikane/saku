@@ -37,6 +37,7 @@ def build_reflection_prompt(target_date: str, journal_content: str, monologue_co
 
 これらを分析し、以下のタスクを「自律的ツール実行」によって処理してください。
 1. 新たに得られた知見、教訓、Ownerから指摘されたルールがあれば、[[WRITE_FILE path="principles/ファイル名.md"]] を使用して新規保存、または既存の教訓ファイルを修正・削除・統合して整理（メモリのデフラグ）を行ってください。
+   ※ 新規に作成する principles ファイルの先頭には、出典として「> source: journal/{target_date}」の行を必ず入れてください（記憶の出典記録のため）。
 2. 自己モデル（meta.md）の各セクションに今日の活動結果を追記する。
    ※ {agent.meta_update_rule()}
    「## 最近の出来事」「## 次にやりたいこと」などの見出し直後にリスト項目を追加する形式で更新し、

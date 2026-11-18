@@ -12,6 +12,11 @@ Growth is not only accumulation. Promoted entries carry an importance score and 
 last-seen date (as an HTML comment, so Obsidian rendering stays clean). Re-mentioning
 an item reinforces it (score up, last-seen refreshed), and a review pass decays stale
 low-score entries into an archive section -- moved, never deleted.
+
+Entries also carry provenance (#79): the same comment records which records the
+item was promoted from (``src:journal/<date>`` and/or ``src:monologue/<date>``,
+see ``saku/provenance.py``), so a durable fact can later be traced to its origin.
+Provenance is written once, at promotion; reinforcement never rewrites it.
 """
 
 import re
@@ -24,6 +29,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from saku import core as agent
+from saku import provenance
 from saku.agent_loop import run_agent_loop
 
 # category -> MEMORY.md ## section heading
@@ -59,9 +65,12 @@ _MEMORY_ITEM_RE = re.compile(
 
 # An entry line: "- 2026-08-03: some text <!-- s:3 last:2026-08-30 -->"
 # The metadata comment is optional so that pre-existing (legacy) entries still parse.
+# The src field (#79 provenance) is optional too, and may also appear alone
+# ("<!-- src:journal/2026-08-30 -->") on entries tidy re-rendered without a score.
 _ENTRY_RE = re.compile(
     r"^\s*- (?P<date>\d{4}-\d{2}-\d{2}): (?P<text>.*?)"
-    r"(?:\s*<!--\s*s:(?P<score>\d+)\s+last:(?P<last>\d{4}-\d{2}-\d{2})\s*-->)?\s*$"
+    r"(?:\s*<!--\s*(?:s:(?P<score>\d+)\s+last:(?P<last>\d{4}-\d{2}-\d{2})"
+    r"(?:\s+src:(?P<src>[^\s>]+))?|src:(?P<srconly>[^\s>]+))\s*-->)?\s*$"
 )
 
 # Category weight for the heuristic importance score (no extra LLM call).
@@ -84,9 +93,18 @@ def score_for(category: str, reinforcements: int = 0) -> int:
     return CATEGORY_WEIGHTS.get(category, DEFAULT_SCORE) + max(0, reinforcements)
 
 
-def format_entry(date: str, text: str, score: int, last: str | None = None) -> str:
-    """Render a MEMORY.md entry line with its score/last-seen metadata."""
-    return f"- {date}: {text} <!-- s:{score} last:{last or date} -->"
+def format_entry(
+    date: str, text: str, score: int, last: str | None = None, src: str | None = None
+) -> str:
+    """Render a MEMORY.md entry line with its score/last-seen metadata.
+
+    ``src`` (#79) appends the provenance refs to the same comment; omitting it
+    produces exactly the pre-provenance shape.
+    """
+    meta = f"s:{score} last:{last or date}"
+    if src:
+        meta += f" src:{src}"
+    return f"- {date}: {text} <!-- {meta} -->"
 
 
 # #53: the extraction model often copies the journal heading, so the promoted text
@@ -108,7 +126,8 @@ def strip_leading_date(text: str, date: str) -> str:
 def parse_entry(line: str) -> dict | None:
     """Parse an entry line. Returns None if the line is not an entry.
 
-    ``score``/``last`` are None for legacy entries written before metadata existed.
+    ``score``/``last`` are None for legacy entries written before metadata existed;
+    ``src`` (#79) is None for entries written before provenance was recorded.
     """
     m = _ENTRY_RE.match(line)
     if not m:
@@ -118,6 +137,7 @@ def parse_entry(line: str) -> dict | None:
         "text": m.group("text").strip(),
         "score": int(m.group("score")) if m.group("score") else None,
         "last": m.group("last"),
+        "src": m.group("src") or m.group("srconly"),
     }
 
 
@@ -154,7 +174,10 @@ def _reinforce_entry(content: str, text: str, date: str, delta: int = 1) -> str:
         if parsed["text"] != text.strip():
             continue
         last = max(parsed["last"] or date, date)
-        lines[i] = format_entry(parsed["date"], parsed["text"], parsed["score"] + delta, last)
+        # Provenance is the entry's origin: reinforcement must not rewrite it.
+        lines[i] = format_entry(
+            parsed["date"], parsed["text"], parsed["score"] + delta, last, src=parsed["src"]
+        )
         changed = True
     return _replace_lines(content, lines) if changed else content
 
@@ -279,11 +302,16 @@ def append_items(
     date: str,
     *,
     scores: list[int] | None = None,
+    source: str | None = None,
 ) -> list[str]:
     """Append items to MEMORY.md under their section. Returns newly added contents.
 
     Each entry is written with score/last-seen metadata. Re-promoting a known item
     reinforces it (score up, last-seen refreshed) instead of appending a duplicate.
+
+    ``source`` (#79) is the provenance of the batch -- the refs of the records the
+    items were extracted from -- and is stamped on newly added entries only;
+    a reinforced entry keeps the provenance it was first written with.
 
     Recovers a missing, empty, or corrupted MEMORY.md by re-initializing the header.
     """
@@ -309,7 +337,8 @@ def append_items(
                 changed = True
             continue
         score = scores[idx] if scores else score_for(category)
-        content = _insert_after_heading(content, section, format_entry(date, clean, score, date))
+        entry = format_entry(date, clean, score, date, src=source)
+        content = _insert_after_heading(content, section, entry)
         added.append(clean)
         changed = True
 
@@ -338,9 +367,23 @@ def run_dreaming(target_date: str | None = None) -> list[str]:
         print("[*] Dreaming: no durable memory found.")
         return []
 
+    # Provenance (#79): the candidate origins are exactly the records this run
+    # read. Extraction is one combined pass, so per-item attribution between
+    # journal and monologue is not claimed -- the refs list both.
+    refs = []
+    if journal:
+        refs.append(provenance.make_ref(provenance.KIND_JOURNAL, target_date))
+    if monologue:
+        refs.append(provenance.make_ref(provenance.KIND_MONOLOGUE, target_date))
+    source = provenance.join_refs(refs)
+
     memory_path = agent.SAKU_ROOT / "MEMORY.md"
     added = append_items(
-        memory_path, items, target_date, scores=[score_for(cat) for cat, _ in items]
+        memory_path,
+        items,
+        target_date,
+        scores=[score_for(cat) for cat, _ in items],
+        source=source,
     )
     print(f"[*] Dreaming: promoted {len(added)} item(s) to MEMORY.md.")
 
