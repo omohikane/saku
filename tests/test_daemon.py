@@ -578,6 +578,41 @@ def test_reflection_report_mentions_meta_when_it_was_updated():
     assert "meta.md" in report and "整理を完了しました" in report, report
 
 
+def test_check_mail_respects_enabled_flag():
+    calls = []
+    saved_enabled = daemon_mod.MAIL_ENABLED
+    saved_fn = daemon_mod.saku_mail.check_mail_and_reply
+    daemon_mod.saku_mail.check_mail_and_reply = lambda: (
+        calls.append(1) or {"received": 1, "replied": 1, "rejected": 0, "warnings": 0}
+    )
+    try:
+        daemon_mod.MAIL_ENABLED = False
+        daemon_mod.check_mail()
+        assert calls == [], "disabled mail must not run a cycle"
+        daemon_mod.MAIL_ENABLED = True
+        daemon_mod.check_mail()
+        assert calls == [1]
+    finally:
+        daemon_mod.MAIL_ENABLED = saved_enabled
+        daemon_mod.saku_mail.check_mail_and_reply = saved_fn
+
+
+def test_check_mail_swallows_cycle_errors():
+    saved_enabled = daemon_mod.MAIL_ENABLED
+    saved_fn = daemon_mod.saku_mail.check_mail_and_reply
+
+    def boom():
+        raise RuntimeError("bad letter")
+
+    daemon_mod.saku_mail.check_mail_and_reply = boom
+    try:
+        daemon_mod.MAIL_ENABLED = True
+        daemon_mod.check_mail()  # must not raise
+    finally:
+        daemon_mod.MAIL_ENABLED = saved_enabled
+        daemon_mod.saku_mail.check_mail_and_reply = saved_fn
+
+
 def test_reflection_report_can_still_go_to_chat_when_opted_in():
     """#71: chat.md reporting is off by default but stays configurable."""
     from saku.persona import PersonaConfig
