@@ -141,6 +141,18 @@ root = "memory"
 # token_env = "SAKU_TALK_TOKEN_SAYO"   # 環境変数名（値は書かない）
 # token_file = ""                      # 秘密ファイルのパスでも可（token_env と排他）
 
+# [killswitch] - キルスイッチ（#76）
+# フラグファイルが存在する間、自律動作を即時停止する: 自律 tick・インボックス
+# 処理・自発発話・スケジュールタスク・深夜振り返り／夢見／週次レビューは開始
+# せず、mail / talk は返信を拒否する（監査に残る）。Owner のチャット返信は
+# 自律動作ではないので止めない。git の pull / sync も止めない（STOP は pull で
+# 届き、監査は sync で Owner に届くため）。
+# 作動: `saku stop`（または vault にこのファイルを置く）。解除: `saku resume`
+# のみ。既定の置き場所 state/STOP は [paths] の書込許可の外にあるため、SAKU
+# 自身のファイルツールでは作れないし消せない。
+# [killswitch]
+# flag_file = "state/STOP"       # memory root 基準の相対パス（絶対パスも可）
+
 # [persona] - 人格の連続性と会話の作法（#71）
 # light プロンプトには記憶が入らず、深夜振り返りの報告が chat.md に混ざって
 # モデルが自分の報告文の文体を学習していました。ここで「毎ターンの記憶」と

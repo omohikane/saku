@@ -85,6 +85,17 @@ def status_lines(memory_root: Path, wiki_root: Path | None = None) -> list[str]:
     return lines
 
 
+def killswitch_line(memory_root: Path) -> str:
+    """One line on the kill switch (#76): the stopped state must be
+    confirmable at a glance, here as everywhere else."""
+    from saku import config as cfg_mod
+    from saku import killswitch
+
+    cfg, _base = cfg_mod.load_config()
+    flag = cfg_mod.resolve_killswitch_flag(cfg, memory_root)
+    return f"kill switch    : {killswitch.describe(flag)}"
+
+
 def _resolve_roots() -> tuple[Path, Path]:
     from saku import config as cfg_mod
 
@@ -98,6 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"SAKU status ({memory_root})")
     for line in status_lines(memory_root, wiki_root):
         print(f"  {line}")
+    print(f"  {killswitch_line(memory_root)}")
     return 0
 
 
