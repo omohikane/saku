@@ -16,6 +16,7 @@ Session history is kept in memory (localhost single-user assumption, v1).
 
 import json
 import os
+import socket
 import sys
 import threading
 from http.cookies import SimpleCookie
@@ -488,6 +489,29 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.flush()
 
 
+class _DualStackHTTPServer(ThreadingHTTPServer):
+    """IPv6 any-address server that also accepts IPv4-mapped connections.
+
+    cloudflared (and some VPN proxies) dial the origin as ``[::1]``; an IPv4-only
+    bind answers nothing, which surfaces as a 502 at the edge. Binding ``::`` with
+    ``IPV6_V6ONLY=0`` serves both families from one socket.
+    """
+
+    address_family = socket.AF_INET6
+
+    def server_bind(self):
+        try:
+            self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        except OSError:
+            pass
+        super().server_bind()
+
+
+def _server_class(host: str):
+    """Pick the socket family for the configured bind address."""
+    return _DualStackHTTPServer if ":" in host else ThreadingHTTPServer
+
+
 def _start_daemon_thread() -> None:
     """Start the daemon autonomous loop (self-study, reflection, proactive messages) in the same process."""
 
@@ -521,7 +545,7 @@ def serve(host: str = "127.0.0.1", port: int = 8787, auto_daemon: bool = True) -
             "    authenticates, re-run with SAKU_UI_ALLOW_INSECURE=1."
         )
 
-    server = ThreadingHTTPServer((host, port), Handler)
+    server = _server_class(host)((host, port), Handler)
     if auto_daemon:
         _start_daemon_thread()
     print(f"╭─ SAKU Web UI ─────────────────────────────")
