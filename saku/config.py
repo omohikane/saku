@@ -420,6 +420,7 @@ class GitConfig:
     root: str = ""  # repository root; "" = detect from the memory root
     paths: list[str] = field(default_factory=list)  # repo-relative pathspecs; [] = memory root itself
     debounce_seconds: int = 120  # at most one sync attempt per window
+    pull_interval_seconds: int = 300  # how often to fetch remote changes (Obsidian etc.)
     push: bool = True
     remote: str = "origin"
     branch: str = ""  # "" = current branch
@@ -436,6 +437,7 @@ def load_git_config(cfg: dict) -> GitConfig:
         root=expand_env(g.get("root", "")),
         paths=list(g.get("paths", [])),
         debounce_seconds=g.get("debounce_seconds", 120),
+        pull_interval_seconds=g.get("pull_interval_seconds", 300),
         push=g.get("push", True),
         remote=g.get("remote", "origin"),
         branch=g.get("branch", ""),

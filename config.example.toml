@@ -103,6 +103,7 @@ root = "memory"
 # root = ".."                     # リポジトリのルート。"" なら memory root から自動判定
 # paths = []                      # リポジトリ相対の pathspec。[] なら memory root 自身
 # debounce_seconds = 120          # この秒数に1回までしか同期しない（commit のまとめ）
+# pull_interval_seconds = 300     # 相手側（Obsidian 等）の更新を取り込む間隔
 # push = true                     # false ならローカル commit のみ
 # remote = "origin"
 # branch = ""                     # "" なら現在ブランチの upstream 名を使う

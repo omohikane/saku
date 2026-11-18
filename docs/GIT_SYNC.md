@@ -28,6 +28,23 @@ repository (for example `your-vault/99_System/saku/`).
 5. Log the outcome to `.git/saku-git.log` (inside the git directory, so the log
    itself is never committed).
 
+## Pulling human-side changes
+
+A sync only pulls when the agent has something to commit. On a server that runs
+for weeks, the human side keeps moving on its own: Obsidian is a sync system, so
+notes written on another machine arrive as commits. The daemon therefore also
+runs `pull_if_due` every `[git] pull_interval_seconds` (default 300s):
+
+- `git fetch` first, then `rev-list --count HEAD..FETCH_HEAD` — a cheap
+  up-to-date check that costs no rebase;
+- `git pull --rebase --autostash` when behind, so the agent's uncommitted work is
+  stashed and restored instead of blocking the pull;
+- a failed rebase is aborted and logged; the next interval retries.
+
+This is the "fetch on update, push on write" loop: the agent pulls what humans
+changed, and pushes what it wrote. Both directions are debounced and share one
+lock, so the chat loop never waits on git.
+
 Sync is debounced by `debounce_seconds` (default 120): a burst of tool writes
 becomes one commit. The agent loop queues the sync on a background thread, so a
 push never delays a reply.

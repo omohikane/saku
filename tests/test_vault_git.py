@@ -218,6 +218,69 @@ def test_log_is_written():
         sb.close()
 
 
+def test_pull_brings_owner_changes():
+    sb = _sandbox()
+    try:
+        other = sb.base / "other"
+        subprocess.run(["git", "clone", "-q", str(sb.remote), str(other)], check=True)
+        _git("checkout", "-q", "-B", "main", "origin/main", cwd=other)
+        _git("config", "user.email", "owner@test.local", cwd=other)
+        _git("config", "user.name", "Owner", cwd=other)
+        (other / "01_Notes").mkdir()
+        (other / "01_Notes" / "owner.md").write_text("owner edit\n", encoding="utf-8")
+        _git("add", "-A", cwd=other)
+        _git("commit", "-q", "-m", "owner edit", cwd=other)
+        _git("push", "-q", "origin", "HEAD:main", cwd=other)
+
+        res = vault_git.pull(_git_cfg(), sb.memory_root, sb.base)
+        assert res["ok"], res
+        assert res["action"] == "pulled"
+        assert res["behind"] >= 1
+        assert (sb.repo / "01_Notes" / "owner.md").exists()
+    finally:
+        sb.close()
+
+
+def test_pull_up_to_date():
+    sb = _sandbox()
+    try:
+        res = vault_git.pull(_git_cfg(), sb.memory_root, sb.base)
+        assert res["ok"], res
+        assert res["action"] == "up-to-date"
+    finally:
+        sb.close()
+
+
+def test_pull_keeps_uncommitted_work():
+    sb = _sandbox()
+    try:
+        file = sb.write_memory("MEMORY.md", "local draft\n")
+        res = vault_git.pull(_git_cfg(), sb.memory_root, sb.base)
+        assert res["ok"], res
+        assert file.read_text(encoding="utf-8") == "local draft\n"
+        status = _git("status", "--porcelain", cwd=sb.repo)
+        assert "99_System/" in status  # still uncommitted, not swallowed by the pull
+    finally:
+        sb.close()
+
+
+def test_pull_if_due_is_debounced():
+    sb = _sandbox()
+    original = vault_git._settings
+    saved_pull = vault_git._last_pull
+    try:
+        cfg = _git_cfg(pull_interval_seconds=3600)
+        vault_git._settings = lambda: (cfg, sb.memory_root, sb.base)
+        first = vault_git.pull_if_due(background=False)
+        assert first["ok"], first
+        second = vault_git.pull_if_due(background=False)
+        assert second["action"] == "debounced"
+    finally:
+        vault_git._settings = original
+        vault_git._last_pull = saved_pull
+        sb.close()
+
+
 def run_tests():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in tests:

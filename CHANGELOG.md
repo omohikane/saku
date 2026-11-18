@@ -9,6 +9,7 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 
 ### Added
 
+- Periodic pull for the memory repository (`[git] pull_interval_seconds`, default 300s): the daemon fetches and rebases human-side changes (e.g. Obsidian on another machine) even when the agent has nothing to commit. Uses `pull --rebase --autostash`, so uncommitted work survives; a failed rebase is aborted and logged.
 - `saku bootstrap`: guided setup that asks where memory lives (checkout / own git repo / existing vault), how the UI is exposed (loopback / NetBird / any), how it is authenticated, and how it is supervised (systemd / Docker / manual), then writes `config.toml` and the matching unit or compose file (`packaging/generated/`).
 - Web UI authentication: a persistent token (`~/.config/saku/ui.token`, 0600) instead of a random per-start token, exchanged for an HttpOnly cookie through a login page; `auth = "auto"` keeps loopback open and requires a token once the UI binds a non-loopback address. `SAKU_UI_ALLOW_INSECURE=1` is required to override that.
 - `SAKU_CONFIG` overrides the config file path (tests, several instances from one checkout).

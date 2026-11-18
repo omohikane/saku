@@ -186,8 +186,9 @@ def run_agent_loop(
     # enabled, debounced, and queued in a background thread so a push never delays
     # the reply.
     try:
-        from .vault_git import sync_if_due
+        from .vault_git import pull_if_due, sync_if_due
 
+        pull_if_due(memory_root)
         sync_if_due(memory_root)
     except Exception:
         pass
