@@ -212,8 +212,8 @@ DEFAULT_WRITE_ALLOWED = [
     "blog/", "monologue/", "principles/", "skills/", "tools/",
     "chat.md", "study/", "journal/", "request_list.md", "wiki/", "children/",
 ]
-DEFAULT_WRITE_DENIED_EXACT = ["meta.md"]
-DEFAULT_DELETE_DENIED_EXACT = ["meta.md", "chat.md", "request_list.md", "genome.md", "soul.md"]
+DEFAULT_WRITE_DENIED_EXACT = ["meta.md", "state/STOP"]
+DEFAULT_DELETE_DENIED_EXACT = ["meta.md", "chat.md", "request_list.md", "genome.md", "soul.md", "state/STOP"]
 
 # Canonical section structure of meta.md (the self-model). Must match
 # memory/meta.template.md: the template forbids changing the `## ` headings,
@@ -544,6 +544,43 @@ def load_talk_config(cfg: dict) -> TalkConfig:
         history_messages=t.get("history_messages", 20),
         callers=callers,
     )
+
+
+# ── Kill Switch Config (#76) ────────────────────────────
+# The kill switch stops autonomous operation immediately: while the flag
+# file exists, the daemon starts no autonomous action (ticks, inbox
+# processing, self-initiation, scheduled tasks, reflection / dreaming /
+# weekly review) and the mail / talk channels refuse to answer. Presence
+# of the file is the whole decision — its content is metadata for humans.
+#
+# The default location, ``state/STOP`` under the memory root, is outside
+# every write-allowed prefix of the [paths] policy (and listed in the
+# write/delete deny lists), so SAKU's own file tools cannot create or
+# remove it: engaging and releasing stay Owner-only operations (a local
+# CLI command, or a file dropped into the vault from another machine —
+# the daemon's git pull carries it in).
+@dataclass
+class KillSwitchConfig:
+    flag_file: str = "state/STOP"  # relative to the memory root; absolute passes through
+
+
+def load_killswitch_config(cfg: dict) -> KillSwitchConfig:
+    k = cfg.get("killswitch", {})
+    return KillSwitchConfig(flag_file=expand_env(k.get("flag_file", "state/STOP")))
+
+
+def resolve_killswitch_flag(cfg: dict, memory_root: Path) -> Path:
+    """Resolve the kill-switch flag file (``[killswitch] flag_file``).
+
+    Relative paths are resolved against the memory root so the flag lives
+    inside the synced memory (the Owner can engage it from any machine
+    that can write to the vault); absolute paths pass through.
+    """
+    rel = expand_env(cfg.get("killswitch", {}).get("flag_file", "state/STOP"))
+    p = Path(rel)
+    if p.is_absolute():
+        return p.resolve()
+    return (memory_root / p).resolve()
 
 
 # ── Web UI Config ───────────────────────────────────────
