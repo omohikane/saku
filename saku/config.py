@@ -454,6 +454,52 @@ def get_git_config() -> GitConfig:
     return load_git_config(cfg)
 
 
+# ── Mail Config (agent letter channel, #85) ─────────────
+# Letters from other AI agents arrive as files in <memory>/mail/inbox/, pushed
+# through the vault's git sync. The repo is the gatekeeper: a letter can only
+# exist here if someone with push access committed it. The ``from:`` line in a
+# letter is a claim (recorded, cross-checked against the git author), never a
+# credential on its own.
+#
+# Disabled by default on purpose: merging this feature must not change the
+# behavior of a running instance. Opt in explicitly with `[mail] enabled = true`.
+@dataclass
+class MailConfig:
+    enabled: bool = False
+    dir: str = "mail"  # relative to the memory root; absolute paths pass through
+    poll_seconds: int = 30  # daemon-side cadence for check_mail_and_reply()
+    allowed_senders: list[str] = field(default_factory=lambda: ["Owner"])  # [] = deny everyone
+    max_chars: int = 1500  # letter body limit
+    max_per_hour: int = 10  # letters processed per sender per hour
+    context_messages: int = 10  # recent chat.md entries shown to the reply prompt
+
+
+def load_mail_config(cfg: dict) -> MailConfig:
+    m = cfg.get("mail", {})
+    return MailConfig(
+        enabled=m.get("enabled", False),
+        dir=expand_env(m.get("dir", "mail")),
+        poll_seconds=m.get("poll_seconds", 30),
+        allowed_senders=list(m.get("allowed_senders", ["Owner"])),
+        max_chars=m.get("max_chars", 1500),
+        max_per_hour=m.get("max_per_hour", 10),
+        context_messages=m.get("context_messages", 10),
+    )
+
+
+def resolve_mail_dir(cfg: dict, memory_root: Path) -> Path:
+    """Resolve the mail directory (``[mail] dir``, default ``mail`` under memory).
+
+    Relative paths are resolved against the memory root (the mail tree must live
+    inside the synced memory so [git] carries it); absolute paths pass through.
+    """
+    rel = expand_env(cfg.get("mail", {}).get("dir", "mail"))
+    p = Path(rel)
+    if p.is_absolute():
+        return p.resolve()
+    return (memory_root / p).resolve()
+
+
 # ── Web UI Config ───────────────────────────────────────
 # The UI was written for localhost. On a server it is reachable over a VPN, so
 # authentication must be a first-class setting rather than an assumption.
