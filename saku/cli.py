@@ -4,6 +4,8 @@
     saku daemon   background daemon
     saku ui       Web UI
     saku status   growth summary (read-only)
+    saku stop     engage the kill switch (stop autonomous operation)
+    saku resume   release the kill switch
     saku tidy     deterministic cleanup of MEMORY.md / wiki (dry-run default)
     saku sync     commit/push the memory repository now ([git] sync)
     saku bootstrap  guided setup (memory / bind / auth / systemd or docker)
@@ -75,12 +77,21 @@ def main(argv: list[str] | None = None) -> int:
 
         return status_main(args[1:])
 
+    if cmd in ("stop", "resume", "killswitch"):
+        from saku.killswitch import main as killswitch_main
+
+        if cmd == "killswitch":
+            sub = args[1:] or ["status"]
+        else:
+            sub = [{"stop": "engage", "resume": "release"}[cmd]] + args[1:]
+        return killswitch_main(sub)
+
     if cmd == "tidy":
         from saku.tidy import main as tidy_main
 
         return tidy_main(args[1:])
 
-    print("Usage: saku [chat|daemon|ui|status|tidy|sync|setup|bootstrap|dream|mcp]")
+    print("Usage: saku [chat|daemon|ui|status|tidy|sync|setup|bootstrap|dream|mcp|stop|resume]")
     return 0
 
 

@@ -20,6 +20,12 @@ Design separations that must not blur:
 self-contained: the daemon hook is a single call (wired separately, after this
 module lands). Everything it needs arrives via arguments, which also makes the
 cycle testable with a stubbed reply function.
+
+Kill switch (#76): while the Owner's flag file exists, every letter that
+would be answered is instead refused — audited ``rejected:killswitch``,
+marked rejected, never answered (checked at the reply attempt and again
+just before the outbox write, so a stop engaged mid-generation still
+prevents the answer).
 """
 
 from __future__ import annotations
@@ -36,6 +42,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import config as saku_config
+from . import killswitch
 from .llm import chat_stream as _llm_chat_stream
 from .thinking import split_thinking, strip_tool_blocks
 
@@ -291,6 +298,7 @@ def check_mail_and_reply(
             _, config_base = saku_config.load_config()
         memory_root = saku_config.resolve_memory_root(cfg, config_base)
     mail_dir = saku_config.resolve_mail_dir(cfg, memory_root)
+    ks_flag = saku_config.resolve_killswitch_flag(cfg, memory_root)
     inbox = mail_dir / "inbox"
     outbox = mail_dir / "outbox"
     inbox.mkdir(parents=True, exist_ok=True)
@@ -413,6 +421,18 @@ def check_mail_and_reply(
             dirty = True
             continue
 
+        # Kill switch (#76): while the Owner's switch is engaged, a letter
+        # is refused — audited, marked rejected, never answered (the sender
+        # may write a new letter after release). Checked per letter, at the
+        # moment of the reply attempt, and re-checked before the write.
+        if killswitch.is_stopped(ks_flag):
+            if fresh:
+                _audit(mail_dir, "rejected:killswitch", claim, author, lid, digest)
+                summary["rejected"] += 1
+            rec["status"] = "rejected"
+            dirty = True
+            continue
+
         # Attempt the reply. The rate event is recorded tentatively and rolled
         # back on LLM failure, so a flaky model cannot eat a sender's quota.
         recent.append(now)
@@ -433,6 +453,18 @@ def check_mail_and_reply(
             warn(rec, "llm-error", claim, author, lid, digest)
             dirty = True
             summary["skipped"] += 1
+            continue
+
+        # Kill switch re-check (#76): the switch may have engaged while the
+        # reply was being generated. The generated text is discarded, the
+        # tentative rate event rolled back, and the letter refused — a
+        # stopped Saku never writes the answer.
+        if killswitch.is_stopped(ks_flag):
+            recent.remove(now)
+            _audit(mail_dir, "rejected:killswitch", claim, author, lid, digest)
+            summary["rejected"] += 1
+            rec["status"] = "rejected"
+            dirty = True
             continue
 
         reply_text = reply_text.strip()
