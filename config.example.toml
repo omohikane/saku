@@ -112,6 +112,21 @@ root = "memory"
 # timeout_seconds = 60
 
 
+# [persona] - 人格の連続性と会話の作法（#71）
+# light プロンプトには記憶が入らず、深夜振り返りの報告が chat.md に混ざって
+# モデルが自分の報告文の文体を学習していました。ここで「毎ターンの記憶」と
+# 「会話の作法」を設定します。
+# [persona]
+# continuity_enabled = true      # 毎ターン、最近の出来事と重要記憶を注入する
+# continuity_chars = 1800        # 注入ブロックの上限文字数
+# style_contract = true          # 第一文で答える／定型の挨拶と締めを書かない等
+# reflection_chat_report = false # 深夜・週次の報告を chat.md にも書く（既定は Web UI のみ）
+# memory_min_score = 3           # 継続性に載せる MEMORY エントリの最低スコア
+# recent_items = 6               # meta.md「最近の出来事」から何件
+# next_items = 4                 # meta.md「次にやりたいこと」から何件
+# memory_items = 8               # MEMORY.md から何件
+
+
 [agent]
 max_history_messages = 30
 

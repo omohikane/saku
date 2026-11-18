@@ -192,8 +192,22 @@ def build_light_system_prompt() -> str:
     if static is None:
         static = _build_static_sections()
         _prompt_cache["static"] = static
+
+    from saku import persona
+
+    pcfg = persona.load_persona_config(_cfg)
+    parts = [static]
+    if pcfg.style_contract:
+        parts.append(persona.STYLE_CONTRACT)
+    # Continuity lives in the system prompt rather than in a mid-history system
+    # message: some chat templates reject a system message after the first turn (#69).
+    if pcfg.continuity_enabled:
+        block = persona.continuity_block(MEMORY_ROOT, pcfg)
+        if block:
+            parts.append(block)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    return f"{static}\n\n# Current Time\n現在: {now}"
+    parts.append(f"# Current Time\n現在: {now}")
+    return "\n\n".join(parts)
 
 
 def build_recall_message(message: str) -> "dict | None":

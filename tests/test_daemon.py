@@ -99,6 +99,7 @@ def test_reflection_does_not_report_a_review_of_an_empty_day():
         orig_root = _patch("MEMORY_ROOT", root)
         orig_reflection = _patch("reflection", _Refl())
         orig_initiate = _patch("saku_self_initiate", lambda reason: calls.append(reason))
+        orig_notify = _patch("notify_webui", lambda msg: calls.append(msg))
         orig_state = _patch("load_chat_state", lambda: _mock_state())
         orig_save = _patch("save_chat_state", lambda s: None)
         try:
@@ -107,6 +108,7 @@ def test_reflection_does_not_report_a_review_of_an_empty_day():
             _restore("MEMORY_ROOT", orig_root)
             _restore("reflection", orig_reflection)
             _restore("saku_self_initiate", orig_initiate)
+            _restore("notify_webui", orig_notify)
             _restore("load_chat_state", orig_state)
             _restore("save_chat_state", orig_save)
 
@@ -542,6 +544,7 @@ def _run_reflection_report(tmp: Path, touch_meta: bool) -> str:
     orig_root = _patch("MEMORY_ROOT", tmp)
     orig_reflection = _patch("reflection", _Refl())
     orig_initiate = _patch("saku_self_initiate", lambda reason: calls.append(reason))
+    orig_notify = _patch("notify_webui", lambda msg: calls.append(msg))
     orig_state = _patch("load_chat_state", lambda: _mock_state())
     orig_save = _patch("save_chat_state", lambda s: None)
     try:
@@ -550,6 +553,7 @@ def _run_reflection_report(tmp: Path, touch_meta: bool) -> str:
         _restore("MEMORY_ROOT", orig_root)
         _restore("reflection", orig_reflection)
         _restore("saku_self_initiate", orig_initiate)
+        _restore("notify_webui", orig_notify)
         _restore("load_chat_state", orig_state)
         _restore("save_chat_state", orig_save)
     assert len(calls) == 1, calls
@@ -572,6 +576,33 @@ def test_reflection_report_mentions_meta_when_it_was_updated():
     with tempfile.TemporaryDirectory() as tmp:
         report = _run_reflection_report(Path(tmp), touch_meta=True)
     assert "meta.md" in report and "整理を完了しました" in report, report
+
+
+def test_reflection_report_can_still_go_to_chat_when_opted_in():
+    """#71: chat.md reporting is off by default but stays configurable."""
+    from saku.persona import PersonaConfig
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        calls = []
+        orig_root = _patch("MEMORY_ROOT", Path(tmp))
+        orig_initiate = _patch("saku_self_initiate", lambda reason: calls.append(reason))
+        orig_state = _patch("load_chat_state", lambda: _mock_state())
+        orig_save = _patch("save_chat_state", lambda s: None)
+        orig_persona = daemon_mod.persona.load_persona_config
+        daemon_mod.persona.load_persona_config = lambda cfg: PersonaConfig(reflection_chat_report=True)
+        try:
+            daemon_mod.check_and_run_midnight_reflection(datetime(2026, 8, 5, 3, 30))
+        finally:
+            _restore("MEMORY_ROOT", orig_root)
+            _restore("saku_self_initiate", orig_initiate)
+            _restore("load_chat_state", orig_state)
+            _restore("save_chat_state", orig_save)
+            daemon_mod.persona.load_persona_config = orig_persona
+
+    assert len(calls) == 1, calls
+    assert "今日もよろしくお願いいたします" not in calls[0]
 
 
 def test_chat_turn_is_journalled_once():
