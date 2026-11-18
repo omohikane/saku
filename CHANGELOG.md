@@ -9,6 +9,7 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 
 ### Added
 
+- The daemon now polls the agent mail channel (`[mail] poll_seconds`, default 30): letters written by other agents are replied to without a manual call, and a failure is logged instead of stopping the loop.
 - Persona continuity and conversational style (`[persona]`): the light prompt now carries a budgeted block of recent events, current intentions and high-score memories every turn, plus an explicit style contract (answer in the first sentence, no stock greetings or closings, no unsolicited work reports, at most one question). Continuity is part of the system prompt, not a mid-history system message, so it cannot trip the template error in #69.
 - Nightly and weekly reports no longer write into `chat.md` by default (they went to the Web UI instead), and `parse_chat_history` drops a leading assistant run, so the agent stops learning its own report style from the conversation log. `[persona] reflection_chat_report = true` restores the old behaviour.
 - Periodic pull for the memory repository (`[git] pull_interval_seconds`, default 300s): the daemon fetches and rebases human-side changes (e.g. Obsidian on another machine) even when the agent has nothing to commit. Uses `pull --rebase --autostash`, so uncommitted work survives; a failed rebase is aborted and logged.

@@ -24,6 +24,7 @@ from pathlib import Path
 
 from saku import core as agent
 from saku import dreaming
+from saku import mail as saku_mail
 from saku import persona
 from saku import reflection
 from saku import weekly
@@ -34,6 +35,9 @@ from saku.vault_git import sync_if_due as _git_sync_if_due
 # ── Config (from config.toml via core) ───────────────────────
 MEMORY_ROOT = agent.MEMORY_ROOT
 _dcfg = agent._cfg.get("daemon", {})
+_mcfg = agent.saku_config.load_mail_config(agent._cfg)
+MAIL_ENABLED = _mcfg.enabled
+MAIL_POLL_SECONDS = max(5, _mcfg.poll_seconds)
 
 CHAT_FILE = MEMORY_ROOT / "chat.md"
 STATE_FILE = MEMORY_ROOT / "state/processed_inbox.json"
@@ -827,6 +831,27 @@ def check_inbox_and_process() -> None:
                 new_state[rel_inbox_path] = mtime
                 save_processed_state(new_state)
 
+def check_mail() -> None:
+    """Run one agent-mail cycle (letters from other agents, #85).
+
+    The cycle is self-contained: it loads [mail] itself, replies with a plain
+    tool-free LLM call, and never touches MEMORY/principles. Failures are logged
+    and swallowed so a malformed letter cannot stop the daemon.
+    """
+    if not MAIL_ENABLED:
+        return
+    try:
+        summary = saku_mail.check_mail_and_reply()
+    except Exception as e:
+        logger.exception("mail cycle failed: %s", e)
+        return
+    if summary.get("received") or summary.get("replied") or summary.get("rejected"):
+        print(
+            f"[*] mail: received={summary['received']} replied={summary['replied']} "
+            f"rejected={summary['rejected']} warnings={summary['warnings']}"
+        )
+
+
 # ── Autonomous tick (Self-Study / Monologue) ──────────────
 def check_autonomous_tick() -> None:
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -930,6 +955,8 @@ def _daemon_run():
     check_and_run_weekly_review()
     check_scheduled_tasks()
     last_schedule_check = now_ts
+    check_mail()
+    last_mail_check = now_ts
 
     while True:
         try:
@@ -963,6 +990,11 @@ def _daemon_run():
             # 3f. Pull human-side changes (Obsidian on another machine keeps
             # committing while SAKU is idle). Debounced by [git] pull_interval_seconds.
             _git_pull_if_due(MEMORY_ROOT)
+
+            # 3g. Agent mail (letters from other agents). Off unless [mail] enabled.
+            if MAIL_ENABLED and now - last_mail_check >= MAIL_POLL_SECONDS:
+                check_mail()
+                last_mail_check = now
 
             # 4. Check for autonomous chat initiation
             check_autonomous_initiation()
