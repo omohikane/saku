@@ -500,6 +500,52 @@ def resolve_mail_dir(cfg: dict, memory_root: Path) -> Path:
     return (memory_root / p).resolve()
 
 
+# ── Talk Config (MCP synchronous conversation, #91) ─────
+# The MCP server's `talk` tool lets another AI agent hold a synchronous
+# conversation with SAKU. Identity comes from the credential, never from a
+# claim (#73): each caller is a Bearer token, and this section only maps a
+# caller name to WHERE the token lives — an environment variable name or a
+# secrets-file path. Token values are never written in config files.
+#
+# There is deliberately no `enabled` flag: with no callers defined, nobody
+# can talk (every talk call is rejected), which is the safe default state.
+@dataclass
+class TalkCaller:
+    name: str = ""  # display name bound to the token (the only identity source)
+    token_env: str = ""  # environment variable holding the token value
+    token_file: str = ""  # or a file whose (stripped) contents are the token
+
+
+@dataclass
+class TalkConfig:
+    max_chars: int = 1500  # per-message character limit (mirrors mail)
+    max_per_hour: int = 30  # accepted messages per caller per hour
+    history_messages: int = 20  # per-caller in-memory history cap (messages, not turns)
+
+    callers: list[TalkCaller] = field(default_factory=list)
+
+
+def load_talk_config(cfg: dict) -> TalkConfig:
+    t = cfg.get("talk", {})
+    callers = []
+    for c in t.get("callers", []):
+        if not isinstance(c, dict):
+            continue
+        callers.append(
+            TalkCaller(
+                name=str(c.get("name", "")),
+                token_env=str(c.get("token_env", "")),
+                token_file=expand_env(str(c.get("token_file", ""))),
+            )
+        )
+    return TalkConfig(
+        max_chars=t.get("max_chars", 1500),
+        max_per_hour=t.get("max_per_hour", 30),
+        history_messages=t.get("history_messages", 20),
+        callers=callers,
+    )
+
+
 # ── Web UI Config ───────────────────────────────────────
 # The UI was written for localhost. On a server it is reachable over a VPN, so
 # authentication must be a first-class setting rather than an assumption.
