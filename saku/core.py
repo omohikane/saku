@@ -211,12 +211,17 @@ def build_light_system_prompt() -> str:
 
 
 def build_recall_message(message: str) -> "dict | None":
-    """Prefetch related memory for ``message`` as a system message, or None.
+    """Prefetch related memory for ``message`` as a user message, or None.
 
     The light prompt intentionally omits memory files, but the model tends not to
     call SEARCH_NOTES on its own (#32). Injecting a few relevant lines keeps the
     "you remember me" feel at a small token cost. Disabled/cfg-driven and fail-open:
     on any error the turn proceeds unchanged.
+
+    The message must not use the system role: callers append it after the
+    system prompt, and some chat templates (llama.cpp Jinja) reject a system
+    message anywhere but the beginning (#69). It is sent as a user message
+    tagged with a ``[recall]`` prefix instead.
     """
     try:
         from saku import recall as recall_mod
@@ -231,7 +236,7 @@ def build_recall_message(message: str) -> "dict | None":
             max_chars=rcfg.max_chars,
             sources=rcfg.sources,
         )
-        return {"role": "system", "content": block} if block else None
+        return {"role": "user", "content": f"[recall]\n{block}"} if block else None
     except Exception:
         return None
 
