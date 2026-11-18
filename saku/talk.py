@@ -29,6 +29,10 @@ it and the Owner's conversation view in #86 reads both channels from one
 folder). Bodies are never logged in full — a content-hash prefix plus the
 first ~40 characters, exactly like mail. Audit writing never gates an auth
 decision: a failed log write is swallowed, never turned into an allow.
+
+Kill switch (#76): while the Owner's flag file exists, every talk call is
+refused (``talk:rejected:killswitch``) — a stopped Saku does not converse,
+even synchronously.
 """
 
 from __future__ import annotations
@@ -44,6 +48,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import config as saku_config
+from . import killswitch
 from .llm import chat_stream as _llm_chat_stream
 from .mail import _digest, _identity_text
 from .thinking import split_thinking, strip_tool_blocks
@@ -114,6 +119,10 @@ class TalkEngine:
         # The audit directory follows the mail channel's configured location:
         # one synced conversation folder for both channels.
         self.audit_dir = saku_config.resolve_mail_dir(cfg, self.memory_root)
+        # Kill switch (#76): statted fresh on every talk() call — the MCP
+        # server is a separate process from the daemon, so no state is
+        # shared or cached; the flag file itself is the coordination.
+        self.killswitch_flag = saku_config.resolve_killswitch_flag(cfg, self.memory_root)
         self.llm_cfg = llm_cfg
         self.reply_fn = reply_fn
         # Tokens that must never act as a talk identity (the [mcp.server]
@@ -237,6 +246,13 @@ class TalkEngine:
         message = (message or "").strip()
         digest = _digest(message, hashlib.sha256(message.encode("utf-8")).hexdigest())
         with self._lock:
+            # Kill switch (#76): a stopped Saku does not converse. Refused
+            # before any other guardrail and audit-logged; authentication
+            # has already happened in the server layer, so this refusal is
+            # the only effect of the call.
+            if killswitch.is_stopped(self.killswitch_flag):
+                self._audit("talk:rejected:killswitch", caller, digest)
+                raise TalkRejected("kill switch engaged: SAKU is stopped")
             if not message:
                 self._audit("talk:rejected:empty", caller, digest)
                 raise TalkRejected("empty message")
