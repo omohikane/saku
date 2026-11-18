@@ -4,6 +4,7 @@
 import os
 import sys
 import tempfile
+import tomllib
 from argparse import Namespace
 from pathlib import Path
 
@@ -132,6 +133,7 @@ def test_unit_has_hardening_and_memory_path():
         plan = bootstrap.build_plan(_args(memory_path=tmp))
         unit = bootstrap.render_unit(plan, "saku")
         assert "ExecStart=" in unit
+        assert sys.executable in unit, "the venv interpreter must survive into the unit"
         assert "NoNewPrivileges=true" in unit
         assert "ProtectSystem=strict" in unit
         assert f"ReadWritePaths={tmp}" in unit
@@ -217,6 +219,39 @@ def test_bootstrap_refuses_to_clobber_config():
             assert (repo / "config.toml").read_text(encoding="utf-8") == "original"
         finally:
             bootstrap.REPO_ROOT = saved_repo
+
+
+def test_vault_mode_enables_git_sync():
+    with tempfile.TemporaryDirectory() as tmp:
+        plan = bootstrap.build_plan(_args(memory="vault", memory_path=tmp))
+        assert plan.git_enabled
+        assert plan.git_root == tmp
+        assert "[git]" in bootstrap.render_config(plan)
+
+
+def test_existing_sections_are_preserved_on_rewrite():
+    existing = {
+        "llm": {
+            "active_profile": "litellm",
+            "profiles": {"litellm": {"api_url": "http://gw/v1", "model": "m"}},
+        },
+        "daemon": {"tick_interval_seconds": 60},
+        "memory": {"root": "old/path"},
+    }
+    plan = bootstrap.build_plan(_args())
+    text = bootstrap.render_config(plan, existing)
+    parsed = tomllib.loads(text)  # duplicate tables would raise here
+    assert parsed["llm"]["active_profile"] == "litellm"
+    assert parsed["llm"]["profiles"]["litellm"]["api_url"] == "http://gw/v1"
+    assert parsed["daemon"]["tick_interval_seconds"] == 60
+    assert parsed["memory"]["root"] != "old/path"  # managed section is regenerated
+
+
+def test_generated_config_is_valid_toml_without_previous():
+    plan = bootstrap.build_plan(_args())
+    parsed = tomllib.loads(bootstrap.render_config(plan))
+    assert parsed["llm"]["active_profile"] == "local"
+    assert parsed["memory"]["root"] == str(plan.memory_path)
 
 
 def run_tests():
