@@ -724,6 +724,206 @@ def test_chat_reply_uses_log_action_false():
         assert seen.get("log_action") is False, seen
 
 
+def _chat_test_env(chat, state, loop_impl):
+    """Patch daemon_mod's chat dependencies for the #84 tests; returns restore()."""
+    originals = {
+        "CHAT_FILE": daemon_mod.CHAT_FILE,
+        "load_chat_state": daemon_mod.load_chat_state,
+        "save_chat_state": daemon_mod.save_chat_state,
+        "run_agent_loop": daemon_mod.run_agent_loop,
+        "get_pending_requests": daemon_mod.get_pending_requests,
+        "check_chat_archive_if_needed": daemon_mod.check_chat_archive_if_needed,
+        "notify_webui": daemon_mod.notify_webui,
+        "build_recall_message": daemon_mod.agent.build_recall_message,
+        "save_journal": daemon_mod.agent.save_journal,
+    }
+    daemon_mod.CHAT_FILE = chat
+    daemon_mod.load_chat_state = lambda: state
+    daemon_mod.save_chat_state = lambda s: None
+    daemon_mod.run_agent_loop = loop_impl
+    daemon_mod.get_pending_requests = lambda: ""
+    daemon_mod.check_chat_archive_if_needed = lambda s: None
+    daemon_mod.notify_webui = lambda msg: None
+    daemon_mod.agent.build_recall_message = lambda msg: None
+    daemon_mod.agent.save_journal = lambda owner, reply, thinking="": None
+
+    def restore():
+        daemon_mod.CHAT_FILE = originals["CHAT_FILE"]
+        daemon_mod.load_chat_state = originals["load_chat_state"]
+        daemon_mod.save_chat_state = originals["save_chat_state"]
+        daemon_mod.run_agent_loop = originals["run_agent_loop"]
+        daemon_mod.get_pending_requests = originals["get_pending_requests"]
+        daemon_mod.check_chat_archive_if_needed = originals["check_chat_archive_if_needed"]
+        daemon_mod.notify_webui = originals["notify_webui"]
+        daemon_mod.agent.build_recall_message = originals["build_recall_message"]
+        daemon_mod.agent.save_journal = originals["save_journal"]
+
+    return restore
+
+
+def test_owner_message_survives_startup_self_initiation():
+    """Issue #84: a self-initiation landing before the first chat poll (the
+    startup reflection report does exactly this) must not swallow a pending
+    Owner message."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        chat = Path(tmp) / "chat.md"
+        header = daemon_mod.CHAT_RESET_HEADER
+        chat.write_text(header, encoding="utf-8")
+        state = {"last_mtime": chat.stat().st_mtime, "last_content": header, "turn_count": 0}
+        prompts = []
+
+        def _loop(prompt, log_action_name, extra_history=None, **kw):
+            prompts.append((log_action_name, prompt))
+            if log_action_name == "chat返信":
+                return True, "無理しないでね。"
+            return True, "昨日の続き、気になっています。"
+
+        restore = _chat_test_env(chat, state, _loop)
+        try:
+            with chat.open("a", encoding="utf-8") as f:
+                f.write("\n\nおはよう。今日はちょっと疲れてる。 >\n")
+            daemon_mod.saku_self_initiate("深夜振り返り報告 (test)")
+            daemon_mod.check_chat_and_reply()
+        finally:
+            restore()
+
+        text = chat.read_text(encoding="utf-8")
+        assert "**Owner**" in text, "Owner message was swallowed by the self-initiation"
+        assert "今日はちょっと疲れてる" in text
+        assert state["turn_count"] == 1, state
+        chat_prompts = [p for name, p in prompts if name == "chat返信"]
+        assert chat_prompts and "今日はちょっと疲れてる" in chat_prompts[0]
+
+
+def test_owner_message_arriving_during_self_initiation_is_not_swallowed():
+    """Issue #84: an Owner message appended while a self-initiation is being
+    generated must still be processed by the next chat poll."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        chat = Path(tmp) / "chat.md"
+        header = daemon_mod.CHAT_RESET_HEADER
+        chat.write_text(header, encoding="utf-8")
+        state = {"last_mtime": chat.stat().st_mtime, "last_content": header, "turn_count": 0}
+
+        def _loop(prompt, log_action_name, extra_history=None, **kw):
+            if log_action_name == "chat返信":
+                return True, "了解です。"
+            # The Owner writes while SAKU is generating its initiation.
+            with chat.open("a", encoding="utf-8") as f:
+                f.write("\n\n生成中に書いたメッセージです。 >\n")
+            return True, "自発発話の本文です。"
+
+        restore = _chat_test_env(chat, state, _loop)
+        try:
+            daemon_mod.saku_self_initiate("定例チェックイン")
+            daemon_mod.check_chat_and_reply()
+        finally:
+            restore()
+
+        text = chat.read_text(encoding="utf-8")
+        assert "**Owner**" in text, "message written during generation was swallowed"
+        assert "生成中に書いたメッセージです" in text
+        assert state["turn_count"] == 1, state
+
+
+def test_interleaved_owner_message_is_recovered_exactly_once():
+    """Issue #84: with the snapshot still behind, a SAKU block sitting after a
+    raw Owner message must not hide it; it is processed once and preserved."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        chat = Path(tmp) / "chat.md"
+        header = daemon_mod.CHAT_RESET_HEADER
+        saku_block = "\n**SAKU** (07:00)\n昨日の振り返りを共有しますね。\n"
+        chat.write_text(header + "\n\n昨日の件、どうなった？ >\n" + saku_block, encoding="utf-8")
+        state = {"last_mtime": 0, "last_content": header, "turn_count": 0}
+
+        def _loop(prompt, log_action_name, extra_history=None, **kw):
+            return True, "片付きましたよ。"
+
+        restore = _chat_test_env(chat, state, _loop)
+        try:
+            daemon_mod.check_chat_and_reply()
+            daemon_mod.check_chat_and_reply()
+        finally:
+            restore()
+
+        text = chat.read_text(encoding="utf-8")
+        assert state["turn_count"] == 1, state
+        assert text.count("**Owner**") == 1, text
+        assert "昨日の件、どうなった？" in text
+        assert "昨日の振り返りを共有しますね" in text, "the interleaved SAKU block was lost"
+
+
+def test_overtaken_unfinished_text_leaves_a_trace():
+    """Issue #84: raw text overtaken by a SAKU block without a '>' terminator
+    cannot be processed, but it must leave a trace instead of vanishing silently."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        chat = Path(tmp) / "chat.md"
+        header = daemon_mod.CHAT_RESET_HEADER
+        saku_block = "\n**SAKU** (07:00)\n振り返りです。\n"
+        chat.write_text(header + "\n\n書きかけのメモ" + saku_block, encoding="utf-8")
+        state = {"last_mtime": 0, "last_content": header, "turn_count": 0}
+        called = {"n": 0}
+
+        def _loop(prompt, log_action_name, extra_history=None, **kw):
+            called["n"] += 1
+            return True, "x"
+
+        restore = _chat_test_env(chat, state, _loop)
+        try:
+            daemon_mod.check_chat_and_reply()
+        finally:
+            restore()
+
+        assert called["n"] == 0, "LLM ran for an unfinished fragment"
+        assert "書きかけのメモ" in chat.read_text(encoding="utf-8"), "the fragment was deleted"
+        assert state.get("chat_warn_key"), "no trace was recorded for the unattributable text"
+
+
+def test_self_initiation_keeps_unfinished_draft_at_tail():
+    """Issue #84: a self-append must not bury an unfinished Owner draft mid-file;
+    the draft stays at the tail so completing it later still works."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        chat = Path(tmp) / "chat.md"
+        header = daemon_mod.CHAT_RESET_HEADER
+        chat.write_text(header, encoding="utf-8")
+        state = {"last_mtime": chat.stat().st_mtime, "last_content": header, "turn_count": 0}
+
+        def _loop(prompt, log_action_name, extra_history=None, **kw):
+            if log_action_name == "chat返信":
+                return True, "受け取りました。"
+            return True, "自発発話の本文です。"
+
+        restore = _chat_test_env(chat, state, _loop)
+        try:
+            with chat.open("a", encoding="utf-8") as f:
+                f.write("\n\n書きかけのメモ")
+            daemon_mod.saku_self_initiate("定例チェックイン")
+            text_after = chat.read_text(encoding="utf-8")
+            assert "自発発話の本文です" in text_after
+            assert text_after.rstrip().endswith("書きかけのメモ"), \
+                "the draft was buried mid-file by the self-append"
+            assert "書きかけのメモ" not in state["last_content"], \
+                "the snapshot absorbed the unprocessed draft"
+            # The Owner finishes the draft at the tail.
+            with chat.open("a", encoding="utf-8") as f:
+                f.write(" >\n")
+            daemon_mod.check_chat_and_reply()
+        finally:
+            restore()
+
+        assert state["turn_count"] == 1, state
+        assert "**Owner**" in chat.read_text(encoding="utf-8")
+
+
 def run_tests():
     global _PASS, _FAIL
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

@@ -38,6 +38,7 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 - Integrated legacy `src/` into the `saku/` package: `core.py`, `daemon.py`, `reflection.py`, `tools/`. `src/` removed.
 - Tests moved to `tests/`.
 - Fixed daemon inbox scanning when `[memory] inbox_dir` points outside the memory root.
+- Owner messages in `chat.md` are no longer swallowed when a daemon self-append (reflection report, weekly report, check-in) lands after them (#84). Detection now scans the unprocessed region past the snapshot instead of requiring the message to be the file tail; self-initiation yields to a pending Owner message, and an unfinished draft overtaken by a self-append is moved verbatim to the tail rather than absorbed into the snapshot. Chat text the daemon cannot attribute now leaves a warning and a state trace instead of vanishing silently.
 
 ### Planned
 
