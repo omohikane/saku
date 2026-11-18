@@ -151,6 +151,7 @@ def test_saku_config_override(tmp_path=None):
     with tempfile.TemporaryDirectory() as tmp:
         cfg = Path(tmp) / "conf.toml"
         cfg.write_text('[memory]\nroot = "mem"\n', encoding="utf-8")
+        previous = os.environ.get("SAKU_CONFIG")
         os.environ["SAKU_CONFIG"] = str(cfg)
         try:
             from saku.config import load_config, resolve_memory_root
@@ -160,7 +161,10 @@ def test_saku_config_override(tmp_path=None):
             assert base == Path(tmp)
             assert resolve_memory_root(data, base) == Path(tmp) / "mem"
         finally:
-            del os.environ["SAKU_CONFIG"]
+            if previous is None:
+                os.environ.pop("SAKU_CONFIG", None)
+            else:
+                os.environ["SAKU_CONFIG"] = previous
 
 
 def test_bootstrap_end_to_end_writes_config_and_unit():
