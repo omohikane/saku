@@ -210,11 +210,18 @@ auto_initiate_cooldown_seconds = 28800 # SAKU self-initiates every 8 hours
 # root = "plugins"
 # enabled = ["my-plugin", "other.plugin"]
 
-# [ui] - Web UI 設定（Phase B で実装。定義のみ）
+# [ui] - Web UI 設定
+# 認証は「毎回ランダムなトークン」ではなく、初回に一度だけ生成して保存する永続トークン。
+# auth = "auto" は loopback なら認証なし、それ以外のアドレスに bind した時点で
+# トークン必須に切り替わります（チャットはツール実行＝ファイル書き込み/コード実行が
+# できるため、到達可能性と権限を分ける）。
 # [ui]
-# host = "127.0.0.1"
+# host = "127.0.0.1"        # VPN 経由で使うなら NetBird の IP や "0.0.0.0"
 # port = 8787
-# auto_daemon = true   # UI 起動時に自動ループ（daemon）も一緒に起動する
+# auto_daemon = true        # UI 起動時に自動ループ（daemon）も一緒に起動する
+# auth = "auto"             # auto / token / none（none は loopback か --insecure のみ）
+# token_file = ""           # "" = $XDG_CONFIG_HOME/saku/ui.token（0600）
+# cookie_name = "saku_auth"
 
 # [ops] - ホーム運用の承認境界（Phase E で実装。定義のみ）
 # 自動実行OKの操作（読み取り系）と、承認必須の操作（破壊的）を分離する

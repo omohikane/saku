@@ -61,6 +61,10 @@ uv pip install -e ".[mcp]"   # mcp is optional; omit if you don't use MCP server
 # 3. Setup configuration file
 cp config.example.toml config.toml
 # Edit config.toml to adjust api_url/keys/model names if necessary
+#
+# Or let the guided setup ask for you (memory location, bind address,
+# auth, systemd/Docker) and write config.toml for you:
+#   uv run python -m saku.cli bootstrap
 
 # 4. Initialize the memory/vault structure
 uv run python -m saku.cli setup

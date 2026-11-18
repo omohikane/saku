@@ -30,9 +30,20 @@ def expand_env(value: str) -> str:
 def load_config() -> tuple[dict, Path]:
     """Load config.toml and return (config dict, config base directory).
 
-    Falls back to config.example.toml if config.toml is missing.
+    Falls back to config.example.toml if config.toml is missing. ``SAKU_CONFIG``
+    overrides the path (useful for tests and for running several instances from
+    one checkout, each with its own config).
     """
     base = CODE_ROOT.parent
+    override = os.environ.get("SAKU_CONFIG", "").strip()
+    if override:
+        path = Path(expand_env(override)).expanduser()
+        if not path.is_absolute():
+            path = (Path.cwd() / path).resolve()
+        if path.exists():
+            with open(path, "rb") as f:
+                return tomllib.load(f), path.parent
+        return {}, path.parent
     for name in ("config.toml", "config.example.toml"):
         p = base / name
         if p.exists():
@@ -439,3 +450,30 @@ def get_git_config() -> GitConfig:
     """Return the [git] config (re-read on every call; cheap toml parse)."""
     cfg, _ = load_config()
     return load_git_config(cfg)
+
+
+# ── Web UI Config ───────────────────────────────────────
+# The UI was written for localhost. On a server it is reachable over a VPN, so
+# authentication must be a first-class setting rather than an assumption.
+# ``auth = "auto"`` keeps localhost friction-free (no auth on loopback) and
+# requires a token as soon as the server binds a non-loopback address.
+@dataclass
+class UiConfig:
+    host: str = "127.0.0.1"
+    port: int = 8787
+    auto_daemon: bool = True
+    auth: str = "auto"  # auto / token / none
+    token_file: str = ""  # "" = $XDG_CONFIG_HOME/saku/ui.token
+    cookie_name: str = "saku_auth"
+
+
+def load_ui_config(cfg: dict) -> UiConfig:
+    u = cfg.get("ui", {})
+    return UiConfig(
+        host=u.get("host", "127.0.0.1"),
+        port=int(u.get("port", 8787)),
+        auto_daemon=u.get("auto_daemon", True),
+        auth=u.get("auth", "auto"),
+        token_file=expand_env(u.get("token_file", "")),
+        cookie_name=u.get("cookie_name", "saku_auth"),
+    )
