@@ -13,6 +13,8 @@ model it may dig further with ``SEARCH_NOTES``/``READ_FILE``.
 import re
 from pathlib import Path
 
+from saku import provenance
+
 # Japanese has no word spacing, so terms are built from ASCII words plus
 # Japanese n-grams (bigrams of each character run) instead of whole runs.
 _ASCII_RE = re.compile(r"[A-Za-z0-9]{2,}")
@@ -102,6 +104,14 @@ def iter_memory_lines(memory_root: Path, sources: list[str]):
             for line in content.splitlines():
                 text = _clean_line(line)
                 if len(text) >= 4:
+                    # Provenance (#79) is stripped with the other metadata by
+                    # _clean_line; surface it explicitly so a recalled memory
+                    # can be weighed by its origin. Display only -- recall
+                    # scoring is unchanged. Legacy entries have no src and
+                    # surface exactly as before.
+                    src = provenance.extract_src(line)
+                    if src:
+                        text = f"{text}（出典: {src}）"
                     yield label, text
 
 
