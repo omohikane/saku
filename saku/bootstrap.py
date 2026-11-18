@@ -201,7 +201,8 @@ def render_unit(plan: Plan, user: str) -> str:
         "PrivateTmp=true",
         "ProtectSystem=strict",
         "ProtectHome=read-only",
-        f"ReadWritePaths={memory} {token_dir} {REPO_ROOT}",
+        f"ReadWritePaths={memory} {token_dir} {REPO_ROOT}"
+        + (f" {plan.git_root}" if plan.git_enabled else ""),
     ]
     return "\n".join(
         [

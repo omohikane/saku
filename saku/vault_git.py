@@ -144,13 +144,21 @@ class _Lock:
         self.path = path
         self.stale_after = stale_after
         self.held = False
+        self.error: OSError | None = None  # set when the lock could not be taken
 
     def __enter__(self) -> bool:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            self.error = e
+            return False
         for _ in range(2):
             try:
                 fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-            except FileExistsError:
+            except OSError as e:
+                if not isinstance(e, FileExistsError):
+                    self.error = e
+                    return False
                 try:
                     age = _now() - self.path.stat().st_mtime
                 except OSError:
@@ -251,9 +259,14 @@ def sync(git_cfg: GitConfig | None = None, memory_root: Path | None = None, base
         return result
 
     lock_path = _git_dir(repo, git_cfg) / "saku-sync.lock"
-    with _Lock(lock_path, stale_after=git_cfg.timeout_seconds * 3) as acquired:
+    lock = _Lock(lock_path, stale_after=git_cfg.timeout_seconds * 3)
+    with lock as acquired:
         if not acquired:
-            result["message"] = "another sync is running"
+            result["message"] = (
+                f"cannot take the sync lock: {lock.error}" if lock.error else "another sync is running"
+            )
+            if lock.error:
+                _log(memory_root, git_cfg, result["message"])
             return result
         try:
             specs = _pathspecs(memory_root, repo, git_cfg)
@@ -370,9 +383,14 @@ def pull(
         return result
 
     lock_path = _git_dir(repo, git_cfg) / "saku-sync.lock"
-    with _Lock(lock_path, stale_after=git_cfg.timeout_seconds * 3) as acquired:
+    lock = _Lock(lock_path, stale_after=git_cfg.timeout_seconds * 3)
+    with lock as acquired:
         if not acquired:
-            result["message"] = "another sync is running"
+            result["message"] = (
+                f"cannot take the sync lock: {lock.error}" if lock.error else "another sync is running"
+            )
+            if lock.error:
+                _log(memory_root, git_cfg, result["message"])
             return result
         try:
             fetch = _git(repo, ["fetch", "--quiet", git_cfg.remote, branch], git_cfg)

@@ -281,6 +281,21 @@ def test_pull_if_due_is_debounced():
         sb.close()
 
 
+def test_readonly_git_dir_is_reported_not_raised():
+    sb = _sandbox()
+    try:
+        gitdir = sb.repo / ".git"
+        gitdir.chmod(0o500)
+        try:
+            res = vault_git.sync(_git_cfg(), sb.memory_root, sb.base)
+        finally:
+            gitdir.chmod(0o700)
+        assert res["ok"] is False
+        assert "cannot take the sync lock" in res["message"]
+    finally:
+        sb.close()
+
+
 def run_tests():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in tests:

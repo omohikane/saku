@@ -140,6 +140,14 @@ def test_unit_has_hardening_and_memory_path():
         assert "EnvironmentFile=-/etc/saku/saku.env" in unit
 
 
+def test_unit_makes_the_git_repository_writable():
+    with tempfile.TemporaryDirectory() as tmp:
+        mem = Path(tmp) / "saku-memory"
+        plan = bootstrap.build_plan(_args(memory="git", memory_path=str(mem)))
+        unit = bootstrap.render_unit(plan, "saku")
+        assert str(mem) in unit.split("ReadWritePaths=")[1].splitlines()[0]
+
+
 def test_compose_mounts_config_and_memory():
     with tempfile.TemporaryDirectory() as tmp:
         plan = bootstrap.build_plan(_args(memory_path=tmp, bind="any", insecure=True, auth="token"))
