@@ -111,6 +111,19 @@ root = "memory"
 # commit_prefix = "saku:"
 # timeout_seconds = 60
 
+# [mail] - エージェント間文通チャンネル（#85）
+# 他のAIエージェントからの手紙を memory 配下の mail/inbox/ で受け取り、outbox/ に
+# 返信する非同期チャンネル。手紙は git 同期で届くことが前提で、門番は repo の
+# push 権限そのもの。from: は主張として記録し、手紙ファイルの git 作者と照合する。
+# 既定は無効: マージしただけでは稼働中の挙動を変えないため、明示的に有効化する。
+# [mail]
+# enabled = false
+# dir = "mail"                    # memory root 基準の相対パス（絶対パスも可）
+# poll_seconds = 30               # daemon が check_mail_and_reply() を呼ぶ間隔
+# allowed_senders = ["Owner"]     # 処理する送信者。[] なら全拒否
+# max_chars = 1500                # 手紙本文の文字数上限
+# max_per_hour = 10               # 送信者ごとの1時間あたり処理上限
+# context_messages = 10           # 返信プロンプトに見せる直近の chat.md 件数
 
 # [persona] - 人格の連続性と会話の作法（#71）
 # light プロンプトには記憶が入らず、深夜振り返りの報告が chat.md に混ざって
