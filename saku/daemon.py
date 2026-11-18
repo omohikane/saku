@@ -24,6 +24,7 @@ from pathlib import Path
 
 from saku import core as agent
 from saku import dreaming
+from saku import persona
 from saku import reflection
 from saku import weekly
 from saku.agent_loop import run_agent_loop as _run_agent_loop
@@ -186,6 +187,12 @@ def parse_chat_history(content: str) -> list[dict]:
             continue
         role = "user" if role_str == "Owner" else "assistant"
         history.append({"role": role, "content": msg_content})
+
+    # A chat file that starts with the agent's own report (nightly reflection,
+    # self-initiated message) teaches the model its own report style. Drop the
+    # leading assistant run so the conversation starts with the Owner (#71).
+    while history and history[0]["role"] == "assistant":
+        history.pop(0)
     return history
 
 def chat_ends_with_owner(content: str, last_content: str) -> tuple[bool, str]:
@@ -445,19 +452,17 @@ def saku_self_initiate(reason: str) -> None:
 
     now = datetime.now()
     now_str = now.strftime("%H:%M")
-    hour = now.hour
-    if 5 <= hour < 11:
-        greeting_hint = "おはようございます"
-    elif 11 <= hour < 18:
-        greeting_hint = "こんにちは"
-    else:
-        greeting_hint = "こんばんは"
-    
+
     prompt = f"""[system] あなたからOwnerへ自発的に話しかけるタイミングです。
-現在時刻は {now_str} です。時刻に合った挨拶（{greeting_hint}）を使ってください。
+現在時刻は {now_str} です。
 用件: {reason}
 これまでの会話履歴、日記、meta.mdの「次にやりたいこと」などを踏まえて、話しかけのメッセージを作成してください。
-定型の「定例チェックインです」は使わず、今日の気づきやOwnerへの具体的な一言を含めてください。
+
+守ること:
+- 挨拶（おはよう／こんにちは／こんばんは）や「定例チェックインです」から始めない。
+- 定型の締め（「今日もよろしくお願いいたします」など）を書かない。
+- 自分の作業報告を並べない。Owner本人の最近の話題・関心に触れる。
+- 最後に短い問いを1つだけ置く。2文以上にしない。
 ※応答は必ず日本語で、最終回答のみ出力してください。「**SAKU**」や「**Owner**」は一切出力しないでください。
 """
 
@@ -558,7 +563,15 @@ def check_and_run_midnight_reflection(now: datetime | None = None) -> None:
             summary = f"昨日（{yesterday}）の記録が無かったため、振り返りは行っていません。"
         else:
             summary = f"昨日の活動の振り返りを完了しました。（本日の自己モデル（meta.md）の更新はありませんでした）"
-        saku_self_initiate(f"深夜振り返り報告 ({summary}今日もよろしくお願いいたします。)")
+        # #71: writing a nightly report into chat.md turned it into a diary, and the
+        # daemon fed that diary back as conversation history. Report to the Owner
+        # channel by default; the chat.md behaviour stays available via config.
+        pcfg = persona.load_persona_config(agent._cfg)
+        if pcfg.reflection_chat_report:
+            saku_self_initiate(f"深夜振り返り報告 ({summary})")
+        else:
+            notify_webui(f"深夜振り返り: {summary}")
+            print("[*] Reflection report delivered to the Web UI (chat.md untouched)")
 
     except Exception as e:
         print(f"[!] Midnight reflection failed: {e}")
@@ -612,7 +625,11 @@ def check_and_run_weekly_review(now: datetime | None = None) -> None:
         summary = "対象期間に記録が無かったため、週次レビューの出力はありませんでした。"
     else:
         summary = "週次レビューを実行しましたが、ノートの出力はありませんでした。"
-    saku_self_initiate(f"週次レビュー報告 ({summary})")
+    # Same rule as the nightly report (#71): a periodic report is not a chat turn.
+    if persona.load_persona_config(agent._cfg).reflection_chat_report:
+        saku_self_initiate(f"週次レビュー報告 ({summary})")
+    else:
+        notify_webui(f"週次レビュー: {summary}")
 
 
 # ── Dreaming: promote durable memories into MEMORY.md ─────────
