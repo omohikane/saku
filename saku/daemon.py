@@ -26,6 +26,7 @@ from pathlib import Path
 from saku import core as agent
 from saku import dreaming
 from saku import mail as saku_mail
+from saku import provenance
 from saku import persona
 from saku import reflection
 from saku import weekly
@@ -837,7 +838,7 @@ def archive_chat() -> None:
     prompt = f"""[system] chat.mdの会話アーカイブ処理を行います。
 以下の会話履歴（{len(chat_history)}件のメッセージ）を分析し、以下のタスクを実行してください。
 
-1. 新しい教訓や重要な気づきがあれば [[WRITE_FILE path="principles/{today}-chat-archive.md"]] に記録する。
+1. 新しい教訓や重要な気づきがあれば [[WRITE_FILE path="principles/{today}-chat-archive.md"]] に記録する。ファイルの先頭には出典として「> source: chat/{today}」の行を入れること。
 2. 自己モデル（meta.md）の「最近の出来事」セクションに今日のchat概要を1行追記する。
    ※ {meta_update_rule}
    追記には [[APPEND_FILE path="meta.md" heading="最近の出来事"]] を使い、「- {today}: （概要）」の形式で1行だけにする。
@@ -889,6 +890,66 @@ def save_processed_state(state: dict) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
+def build_inbox_prompt(rel_inbox_path: str, file_content: str) -> str:
+    """Prompt for distilling one inbox document into principles/skills.
+
+    The run is LLM-driven, so provenance (#79) is an instruction here -- the
+    model is told to head every file it creates with the source line naming
+    this document -- and ``check_inbox_and_process`` verifies afterwards
+    (log-only) that files written by the run actually carry one.
+    """
+    source = provenance.source_line(provenance.make_ref(provenance.KIND_INBOX, rel_inbox_path))
+    return f"""[system] インボックスに新規/更新ファイルが配置されました。
+ファイルパス: {rel_inbox_path}
+内容:
+---
+{file_content[:3000]}
+---
+
+この内容を分析し、あなたの知識ベース（principles/ や skills/）に追加すべき情報があれば書き込んでください。
+新しくファイルを作成する場合は、先頭に出典として「{source}」の行を必ず入れてください（記憶の出典記録のため）。
+処理完了後は「[INBOX_PROCESSED]」と出力してください。
+"""
+
+
+def _snapshot_markdown(dirs: list[Path]) -> dict[str, float]:
+    """Map of markdown path -> mtime under ``dirs`` (missing dirs skipped)."""
+    out: dict[str, float] = {}
+    for d in dirs:
+        if not d.is_dir():
+            continue
+        for p in d.rglob("*.md"):
+            try:
+                out[str(p)] = p.stat().st_mtime
+            except OSError:
+                pass
+    return out
+
+
+def _unsourced_writes(before: dict[str, float], dirs: list[Path]) -> list[Path]:
+    """Markdown files *created* since ``before`` with no source line.
+
+    Used to verify the inbox provenance instruction (#79), which requires the
+    line on newly created files only -- appends to existing files are out of
+    scope and never flagged. Log-only: a file the model wrote without
+    recording where its content came from is reported, never mutated.
+    """
+    missing: list[Path] = []
+    for d in dirs:
+        if not d.is_dir():
+            continue
+        for p in sorted(d.rglob("*.md")):
+            if str(p) in before:
+                continue
+            try:
+                text = p.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            if not provenance.has_source_line(text):
+                missing.append(p)
+    return missing
+
+
 def check_inbox_and_process() -> None:
     # The inbox location is configurable via [memory] inbox_dir (the layout varies
     # per person). Falls back gracefully if not present.
@@ -899,6 +960,7 @@ def check_inbox_and_process() -> None:
 
     state = load_processed_state()
     new_state = dict(state)
+    watched = [MEMORY_ROOT / "principles", MEMORY_ROOT / "skills"]
 
     for p in inbox_dir.glob("*.md"):
         rel_inbox_path = str(p.relative_to(inbox_dir))
@@ -907,18 +969,20 @@ def check_inbox_and_process() -> None:
         if rel_inbox_path not in state or mtime > state[rel_inbox_path]:
             print(f"[*] Found new/updated inbox file: {rel_inbox_path}")
             file_content = agent.load_file(p)
-            prompt = f"""[system] インボックスに新規/更新ファイルが配置されました。
-ファイルパス: {rel_inbox_path}
-内容:
----
-{file_content[:3000]}
----
-
-この内容を分析し、あなたの知識ベース（principles/ や skills/）に追加すべき情報があれば書き込んでください。
-処理完了後は「[INBOX_PROCESSED]」と出力してください。
-"""
+            prompt = build_inbox_prompt(rel_inbox_path, file_content)
+            before = _snapshot_markdown(watched)
             success, _ = run_agent_loop(prompt, f"インボックス処理: {p.name}", inbox_mode=True)
             if success:
+                # Provenance check (#79): files this run wrote should record
+                # the document they were distilled from. Warn, never mutate.
+                for written in _unsourced_writes(before, watched):
+                    logger.warning(
+                        "[インボックス] provenance missing in %s (expected a '%s' line)",
+                        written,
+                        provenance.source_line(
+                            provenance.make_ref(provenance.KIND_INBOX, rel_inbox_path)
+                        ),
+                    )
                 # success means "handled" for inbox runs, including "nothing to save",
                 # so a no-op file is not re-read and re-sent to the LLM every scan.
                 new_state[rel_inbox_path] = mtime
