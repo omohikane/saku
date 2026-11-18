@@ -12,6 +12,7 @@ Runs in the background, waking up periodically to:
 7. Run periodic autonomous ticks for self-study and monologue writing.
 """
 
+import hashlib
 import json
 import logging
 import logging.handlers
@@ -124,6 +125,7 @@ def load_chat_state() -> dict:
         "turn_count": 0,
         "last_mtime": 0,
         "last_content": "",
+        "chat_warn_key": "",
         "last_reflection_date": ""
     }
     if not CHAT_STATE_FILE.exists():
@@ -199,28 +201,92 @@ def parse_chat_history(content: str) -> list[dict]:
         history.pop(0)
     return history
 
-def chat_ends_with_owner(content: str, last_content: str) -> tuple[bool, str]:
-    """Return (True, owner_message) if chat.md has new content appended ending with '>'."""
-    cleaned = content.rstrip()
-    if not cleaned.endswith(">"):
-        return False, ""
-    
-    if last_content and content.startswith(last_content):
-        user_diff = content[len(last_content):].rstrip()
+# Formatted blocks written by the daemon always carry a "(HH:MM)" suffix.
+# Requiring it keeps a quoted "**SAKU**" line inside an Owner message from
+# being mistaken for a block boundary.
+_CHAT_BLOCK_HEADER_RE = re.compile(r"^\*\*(?:Owner|SAKU)\*\*\s*\([^)]*\)\s*$", re.MULTILINE)
+
+
+def scan_chat_region(content: str, last_content: str) -> dict:
+    """Split chat.md into the processed prefix and the unprocessed region (#84).
+
+    ``last_content`` snapshots everything already accounted for; the region is
+    whatever follows it. Detection used to require the region to be the file's
+    tail ending with '>', so a daemon self-append landing after an Owner
+    message buried that message mid-file and it was never seen again. Raw
+    (unformatted) Owner text can only be told apart from formatted blocks at
+    the region's head — a formatted block has no end marker, so text after
+    the first block header belongs to that block as far as anyone can tell.
+
+    Returns a dict with the prefix, the verbatim ``raw_segment`` before the
+    first block header, the ``kept`` blocks from that header on, ``raw_text``
+    (the segment stripped), ``owner_message`` (``raw_text`` minus its trailing
+    '>' when it is a complete message, else ''), and the flags ``has_raw``,
+    ``overtaken`` (raw text sits in front of a formatted block) and
+    ``snapshot_mismatch`` (``last_content`` is not a prefix of ``content`` —
+    the file was rewritten outside the snapshot's knowledge).
+    """
+    snapshot_mismatch = bool(last_content) and not content.startswith(last_content)
+    if last_content and not snapshot_mismatch:
+        prefix = last_content
+    elif content.startswith(CHAT_RESET_HEADER):
+        prefix = CHAT_RESET_HEADER
     else:
-        reset_header_len = len(CHAT_RESET_HEADER)
-        if len(content) >= reset_header_len:
-            user_diff = content[reset_header_len:].rstrip()
-        else:
-            user_diff = content.rstrip()
-            
-    if user_diff.endswith(">"):
-        user_diff = user_diff[:-1].strip()
-        
-    if not user_diff:
-        return False, ""
-        
-    return True, user_diff
+        prefix = ""
+    region = content[len(prefix):]
+    m = _CHAT_BLOCK_HEADER_RE.search(region)
+    if m:
+        raw_segment = region[:m.start()]
+        kept = region[m.start():]
+    else:
+        raw_segment = region
+        kept = ""
+    raw_text = raw_segment.strip()
+    owner_message = ""
+    if raw_text.endswith(">"):
+        owner_message = raw_text[:-1].strip()
+    return {
+        "prefix": prefix,
+        "raw_segment": raw_segment,
+        "kept": kept,
+        "raw_text": raw_text,
+        "owner_message": owner_message,
+        "has_raw": bool(raw_text),
+        "overtaken": bool(raw_text) and bool(kept),
+        "snapshot_mismatch": snapshot_mismatch,
+    }
+
+
+def _formatted_region_content(scan: dict) -> str:
+    """The scan's formatted content: processed prefix plus any kept blocks."""
+    base = scan["prefix"].rstrip()
+    kept = scan["kept"].strip("\n")
+    if kept:
+        base += "\n\n" + kept
+    return base
+
+
+def _note_unattributed_chat_text(state: dict, scan: dict) -> None:
+    """Leave a trace for chat.md text the daemon cannot attribute (#84).
+
+    Raw Owner text overtaken by a formatted block, or a snapshot that no
+    longer matches the file, used to vanish silently. Warn once per distinct
+    content — throttled by a hash kept in state as ``chat_warn_key``, which
+    also leaves the trace in the state file itself.
+    """
+    warn = scan["snapshot_mismatch"] or (scan["has_raw"] and scan["overtaken"])
+    if not warn:
+        state["chat_warn_key"] = ""
+        return
+    key = hashlib.sha1(
+        (scan["raw_text"] + "|" + str(scan["snapshot_mismatch"])).encode("utf-8")
+    ).hexdigest()[:12]
+    if state.get("chat_warn_key") != key:
+        logger.warning(
+            "[chat] unattributed text in chat.md (snapshot_mismatch=%s, overtaken=%s): %r",
+            scan["snapshot_mismatch"], scan["overtaken"], scan["raw_text"][:80],
+        )
+        state["chat_warn_key"] = key
 
 def _strip_no_action_markers(text: str) -> str:
     """Remove completion markers from text shown to the Owner / written to the journal."""
@@ -309,25 +375,24 @@ def check_chat_and_reply() -> None:
 
     content = CHAT_FILE.read_text(encoding="utf-8")
     last_content = state.get("last_content", "")
-    has_new_msg, owner_msg = chat_ends_with_owner(content, last_content)
+    scan = scan_chat_region(content, last_content)
+    owner_msg = scan["owner_message"]
 
-    if not has_new_msg:
+    if not owner_msg:
         state["last_mtime"] = current_mtime
+        _note_unattributed_chat_text(state, scan)
         save_chat_state(state)
         return
 
+    if scan["overtaken"]:
+        # #84 recovery: a daemon self-append landed after this message, so
+        # tail-based detection could no longer see it.
+        logger.info("[chat] recovered an Owner message overtaken by a formatted block")
+    state["chat_warn_key"] = ""
     print(f"[*] Trigger detected. Formatting new Owner message in chat.md...")
     now_str = datetime.now().strftime("%H:%M")
-    
-    if not content.startswith(last_content):
-        cleaned_content = content.rstrip()
-        if cleaned_content.endswith(">"):
-            base_content = cleaned_content[:-1].rstrip()
-        else:
-            base_content = cleaned_content
-    else:
-        base_content = last_content.rstrip()
 
+    base_content = _formatted_region_content(scan)
     formatted_user_block = f"\n\n**Owner** ({now_str})\n{owner_msg}\n"
     updated_content = base_content + formatted_user_block
     
@@ -449,6 +514,15 @@ def saku_self_initiate(reason: str) -> None:
     """Ask SAKU to autonomously write an opening message to Owner in chat.md."""
     state = load_chat_state()
     content = CHAT_FILE.read_text(encoding="utf-8")
+
+    # #84: never overtake a pending Owner message. The chat poll runs every
+    # few seconds and must answer it first; a self-append here would bury
+    # the message mid-file, where tail-based detection cannot reach it.
+    pending = scan_chat_region(content, state.get("last_content", ""))
+    if pending["owner_message"]:
+        print(f"[*] Self-initiation skipped: an Owner message is pending ({reason})")
+        return
+
     chat_history = parse_chat_history(content)
 
     if len(chat_history) > 20:
@@ -476,20 +550,39 @@ def saku_self_initiate(reason: str) -> None:
 
     request_suffix = get_pending_requests()
     reply_block = f"\n**SAKU** ({now_str})\n{saku_msg}{request_suffix}\n"
-    
-    # Safely append to file
-    with CHAT_FILE.open("a", encoding="utf-8") as f:
-        f.write(reply_block)
-        
+
+    # Re-check before appending: the Owner may have written while the message
+    # was being generated (#84). A complete message still wins and the
+    # initiation is dropped. An unfinished draft is moved — verbatim — behind
+    # the new block, so it stays at the tail where it can still be completed
+    # and detected, and the snapshot advances only over formatted content.
+    state = load_chat_state()
+    current = CHAT_FILE.read_text(encoding="utf-8")
+    scan = scan_chat_region(current, state.get("last_content", ""))
+    if scan["owner_message"]:
+        print(f"[*] Self-initiation skipped at append time: an Owner message arrived ({reason})")
+        return
+
+    if scan["has_raw"]:
+        formatted_part = _formatted_region_content(scan) + "\n" + reply_block
+        raw_segment = scan["raw_segment"]
+        sep = "" if raw_segment.startswith("\n") else "\n\n"
+        CHAT_FILE.write_text(formatted_part + sep + raw_segment, encoding="utf-8")
+        state["last_content"] = formatted_part
+    else:
+        # Safely append to file
+        with CHAT_FILE.open("a", encoding="utf-8") as f:
+            f.write(reply_block)
+        state["last_content"] = CHAT_FILE.read_text(encoding="utf-8")
+
     print(f"[*] SAKU initiated chat.md message: {reason}")
 
     # Also deliver to the Web UI (when "webui" is included in [channels] proactive)
     if "webui" in PROACTIVE_CHANNELS:
         notify_webui(saku_msg)
-    
+
     # Save the updated content state so daemon doesn't loop
     state["last_mtime"] = CHAT_FILE.stat().st_mtime
-    state["last_content"] = CHAT_FILE.read_text(encoding="utf-8")
     state["last_saku_msg_time"] = time.time()
     save_chat_state(state)
 
