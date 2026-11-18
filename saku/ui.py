@@ -15,17 +15,20 @@ Session history is kept in memory (localhost single-user assumption, v1).
 """
 
 import json
+import os
 import sys
 import threading
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 # Repo root (where config.toml / saku/ / memory/ live)
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from saku import auth
 from saku import config as saku_config
 from saku.agent_loop import run_agent_loop
 from saku import core as agent
@@ -36,9 +39,49 @@ _LLM = agent._current_llm
 _CTX = agent.context_config
 _UI_INBOX = _MEMORY_ROOT / "state" / "ui_inbox.json"
 
+_UI = saku_config.load_ui_config(_cfg)
+
+# Auth is resolved lazily: the token file is created by `saku bootstrap` (or on
+# first start when a token is required), not at import time.
+_AUTH: dict[str, str | None] = {"mode": None, "token": None}
+
+
+def _auth_state() -> tuple[str, str]:
+    if _AUTH["mode"] is None:
+        mode = auth.auth_mode(_UI)
+        token = auth.ensure_token(_UI) if mode == "token" else ""
+        _AUTH["mode"], _AUTH["token"] = mode, token
+    return str(_AUTH["mode"]), str(_AUTH["token"] or "")
+
 # Session history (client_id -> messages). The system prompt is index 0.
 _sessions: dict[str, list[dict]] = {}
 _sessions_lock = threading.Lock()
+
+# ── Login (token exchange for a cookie) ──────────────────
+# The token is pasted once; afterwards the browser carries an HttpOnly cookie.
+# Putting the token in a URL would leave it in history, Referer headers and logs.
+LOGIN_PAGE = """<!doctype html>
+<html lang="ja"><head><meta charset="utf-8">
+<title>SAKU — login</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+ body{background:#1a1b26;color:#d5d6e0;font-family:"Noto Sans JP",sans-serif;
+      display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+ form{background:#23243a;padding:24px 28px;border-radius:10px;width:min(90vw,360px)}
+ h1{font-size:1.1em;margin:0 0 4px} p{color:#888;font-size:.85em;margin:0 0 16px}
+ input{width:100%;box-sizing:border-box;background:#1a1b26;border:1px solid #444;
+       color:#d5d6e0;border-radius:6px;padding:10px}
+ button{margin-top:12px;width:100%;background:#7aa2f7;border:0;color:#111;
+        border-radius:6px;padding:10px;font-weight:bold;cursor:pointer}
+ .err{color:#f7768e;font-size:.85em;margin-top:10px}
+</style></head><body>
+<form method="post" action="/login">
+ <h1>SAKU</h1>
+ <p>トークンを入力してください（<code>~/.config/saku/ui.token</code>）</p>
+ <input name="token" type="password" autofocus autocomplete="current-password">
+ <button type="submit">ログイン</button>
+ __ERROR__
+</form></body></html>"""
 
 # ── Frontend (single HTML) ───────────────────────────────
 PAGE = """<!doctype html>
@@ -276,21 +319,68 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # suppress default logging
         pass
 
-    def _send_headers(self, status=200, ctype="text/html; charset=utf-8"):
+    def _send_headers(self, status=200, ctype="text/html; charset=utf-8", headers=None):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", "no-store")
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
+
+    # ── auth helpers ────────────────────────────────────
+    def _cookie_token(self) -> str:
+        raw = self.headers.get("Cookie", "")
+        if not raw:
+            return ""
+        jar = SimpleCookie()
+        try:
+            jar.load(raw)
+        except Exception:
+            return ""
+        morsel = jar.get(_UI.cookie_name)
+        return morsel.value if morsel else ""
+
+    def _bearer_token(self) -> str:
+        header = self.headers.get("Authorization", "")
+        if header.lower().startswith("bearer "):
+            return header[7:].strip()
+        return ""
+
+    def _authenticated(self) -> bool:
+        mode, token = _auth_state()
+        if mode == "none":
+            return True
+        return auth.verify(self._cookie_token(), token) or auth.verify(self._bearer_token(), token)
+
+    def _send_login(self, status=200, error: bool = False):
+        body = LOGIN_PAGE.replace("__ERROR__", '<div class="err">トークンが違います</div>' if error else "")
+        self._send_headers(status)
+        self.wfile.write(body.encode("utf-8"))
+
+    def _send_unauthorized(self):
+        self._send_headers(401, ctype="application/json")
+        self.wfile.write(b'{"error":"unauthorized"}')
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/api/health":
+            # Public by design: a monitor must be able to tell "alive" from "down"
+            # without holding the token.
+            self._send_headers(ctype="application/json")
+            self.wfile.write(b'{"status":"ok"}')
+            return
+        if path == "/login":
+            self._send_login()
+            return
+        if not self._authenticated():
+            if path in ("/", "/index.html"):
+                self._send_login()
+            else:
+                self._send_unauthorized()
+            return
         if path in ("/", "/index.html"):
             self._send_headers()
             self.wfile.write(PAGE.encode("utf-8"))
-            return
-        if path == "/api/health":
-            self._send_headers(ctype="application/json")
-            self.wfile.write(b'{"status":"ok"}')
             return
         if path == "/api/proactive":
             self._send_headers(ctype="application/json")
@@ -305,13 +395,40 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length)
+
+        if path == "/login":
+            token = ""
+            try:
+                token = parse_qs(body.decode("utf-8", "replace")).get("token", [""])[0]
+            except Exception:
+                token = ""
+            mode, expected = _auth_state()
+            if mode == "none" or auth.verify(token, expected):
+                self._send_headers(
+                    303,
+                    ctype="text/plain; charset=utf-8",
+                    headers={
+                        "Location": "/",
+                        "Set-Cookie": (
+                            f"{_UI.cookie_name}={expected}; HttpOnly; SameSite=Lax; "
+                            "Path=/; Max-Age=31536000"
+                        ),
+                    },
+                )
+            else:
+                self._send_login(status=403, error=True)
+            return
+
         if path != "/api/chat":
             self._send_headers(404)
             self.wfile.write(b"not found")
             return
 
-        length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length)
+        if not self._authenticated():
+            self._send_unauthorized()
+            return
         try:
             payload = json.loads(body)
             message = str(payload.get("message", ""))
@@ -390,11 +507,31 @@ def serve(host: str = "127.0.0.1", port: int = 8787, auto_daemon: bool = True) -
 
     When auto_daemon=True, the autonomous loop (daemon) also starts as a thread in this process.
     """
+    global _UI
+    from dataclasses import replace as _replace
+
+    _UI = _replace(_UI, host=host, port=int(port), auto_daemon=auto_daemon)
+    _AUTH["mode"] = None  # the bind address decides whether a token is required
+    mode, _token = _auth_state()
+
+    if mode == "none" and not auth.is_loopback(host) and os.environ.get("SAKU_UI_ALLOW_INSECURE") != "1":
+        raise SystemExit(
+            f"[!] refusing to serve without auth on {host}:{port}.\n"
+            "    Set [ui] auth = \"token\" (recommended) or, if a reverse proxy already\n"
+            "    authenticates, re-run with SAKU_UI_ALLOW_INSECURE=1."
+        )
+
     server = ThreadingHTTPServer((host, port), Handler)
     if auto_daemon:
         _start_daemon_thread()
     print(f"╭─ SAKU Web UI ─────────────────────────────")
     print(f"│  http://{host}:{port}")
+    if mode == "token":
+        print(f"│  auth: token  ({auth.token_file(_UI)})")
+    elif not auth.is_loopback(host):
+        print(f"│  auth: NONE (insecure; SAKU_UI_ALLOW_INSECURE=1)")
+    else:
+        print(f"│  auth: none (loopback only)")
     if auto_daemon:
         print(f"│  自動ループ（daemon）: 起動中")
     print(f"│  Ctrl+C で停止")
@@ -407,10 +544,7 @@ def serve(host: str = "127.0.0.1", port: int = 8787, auto_daemon: bool = True) -
 
 
 def main() -> None:
-    host = _cfg.get("ui", {}).get("host", "127.0.0.1")
-    port = int(_cfg.get("ui", {}).get("port", 8787))
-    auto_daemon = _cfg.get("ui", {}).get("auto_daemon", True)
-    serve(host, port, auto_daemon=auto_daemon)
+    serve(_UI.host, _UI.port, auto_daemon=_UI.auto_daemon)
 
 
 if __name__ == "__main__":

@@ -182,6 +182,17 @@ def run_agent_loop(
     if unbacked and log:
         log(f"reply claims writes that nothing backed: {', '.join(unbacked)}")
 
+    # Persist the turn's writes to the memory repository. No-op unless [git] is
+    # enabled, debounced, and queued in a background thread so a push never delays
+    # the reply.
+    try:
+        from .vault_git import pull_if_due, sync_if_due
+
+        pull_if_due(memory_root)
+        sync_if_due(memory_root)
+    except Exception:
+        pass
+
     return LoopResult(
         visible=final_visible.strip(),
         thinking="\n\n".join(current_thinking).strip(),

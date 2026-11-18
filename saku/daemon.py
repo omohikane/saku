@@ -27,6 +27,8 @@ from saku import dreaming
 from saku import reflection
 from saku import weekly
 from saku.agent_loop import run_agent_loop as _run_agent_loop
+from saku.vault_git import pull_if_due as _git_pull_if_due
+from saku.vault_git import sync_if_due as _git_sync_if_due
 
 # ── Config (from config.toml via core) ───────────────────────
 MEMORY_ROOT = agent.MEMORY_ROOT
@@ -936,6 +938,14 @@ def _daemon_run():
             if now - last_schedule_check >= 60:
                 check_scheduled_tasks()
                 last_schedule_check = now
+
+            # 3e. Persist memory writes that did not come from the agent loop
+            # (reflection / dreaming write files directly). Debounced inside.
+            _git_sync_if_due(MEMORY_ROOT)
+
+            # 3f. Pull human-side changes (Obsidian on another machine keeps
+            # committing while SAKU is idle). Debounced by [git] pull_interval_seconds.
+            _git_pull_if_due(MEMORY_ROOT)
 
             # 4. Check for autonomous chat initiation
             check_autonomous_initiation()

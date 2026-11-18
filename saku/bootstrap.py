@@ -1,0 +1,451 @@
+"""Guided bootstrap for a server-style SAKU deployment.
+
+The same code base is meant to run in very different places: a laptop next to an
+Obsidian vault, a home server on a VPN, or a container. Rather than documenting
+three paths and letting people assemble them by hand, ``saku bootstrap`` asks the
+few questions that actually change the result and writes the matching config:
+
+* **where the memory lives** — inside the checkout, in an existing vault, or in
+  its own git repository (the server default);
+* **how it is exposed** — loopback only, a VPN address (NetBird / Tailscale), or
+  every interface;
+* **how it is authenticated** — a persistent token (default once exposed) or none;
+* **how it is supervised** — systemd, Docker, or manual.
+
+Nothing here is OS-specific beyond detection: the systemd unit works on Arch and
+Debian alike, and the container path uses a plain ``python:slim`` image.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import subprocess
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from . import auth
+from .config import CODE_ROOT, UiConfig
+
+REPO_ROOT = CODE_ROOT.parent
+GENERATED = REPO_ROOT / "packaging" / "generated"
+
+VPN_INTERFACES = {"netbird": ["wt0"], "tailscale": ["tailscale0"]}
+
+
+# ── detection ───────────────────────────────────────────
+def detect_os() -> dict:
+    info = {"id": "unknown", "family": "unknown", "systemd": False, "docker": False}
+    try:
+        for line in Path("/etc/os-release").read_text(encoding="utf-8").splitlines():
+            if line.startswith("ID="):
+                info["id"] = line.split("=", 1)[1].strip().strip('"')
+            elif line.startswith("ID_LIKE="):
+                info["family"] = line.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    if info["id"] in ("arch", "endeavouros", "manjaro") or "arch" in info["family"]:
+        info["family"] = "arch"
+    elif info["family"] or info["id"]:
+        info["family"] = info["family"] or info["id"]
+    info["systemd"] = Path("/run/systemd/system").is_dir()
+    info["docker"] = bool(_which("docker") or _which("podman"))
+    return info
+
+
+def _which(name: str) -> str:
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        p = Path(d) / name
+        if p.is_file() and os.access(p, os.X_OK):
+            return str(p)
+    return ""
+
+
+def _ipv4_addresses() -> dict[str, str]:
+    """Interface name -> IPv4 address (best effort, no third-party deps)."""
+    out: dict[str, str] = {}
+    try:
+        res = subprocess.run(
+            ["ip", "-4", "-o", "addr", "show"], capture_output=True, text=True, timeout=5
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return out
+    for line in res.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        iface = parts[1].rstrip(":")
+        for i, part in enumerate(parts):
+            if part == "inet" and i + 1 < len(parts):
+                out[iface] = parts[i + 1].split("/")[0]
+    return out
+
+
+def detect_vpn() -> tuple[str, str]:
+    """Return (kind, address) for NetBird/Tailscale, or ("", "")."""
+    addrs = _ipv4_addresses()
+    for kind, ifaces in VPN_INTERFACES.items():
+        for iface in ifaces:
+            if iface in addrs:
+                return kind, addrs[iface]
+    return "", ""
+
+
+# ── generated artifacts ─────────────────────────────────
+@dataclass
+class Plan:
+    mode: str = "manual"  # systemd / docker / manual
+    memory: str = "local"  # local / git / vault
+    memory_path: Path = REPO_ROOT / "memory"
+    host: str = "127.0.0.1"
+    port: int = 8787
+    auth_mode: str = "auto"
+    token_file: Path = field(default_factory=auth.default_token_file)
+    llm_url: str = "http://127.0.0.1:8080/v1/chat/completions"
+    llm_model: str = ""
+    git_enabled: bool = False
+    git_root: str = ""
+    insecure: bool = False
+
+
+MANAGED_SECTIONS = {"memory", "ui", "git"}
+
+
+def _toml_value(value) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(v) for v in value) + "]"
+    text = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{text}"'
+
+
+def _toml_dump(data: dict, prefix: str = "") -> str:
+    """Small TOML emitter for the sections bootstrap does not manage.
+
+    Scalar keys must precede sub-tables inside a table, so they are emitted first.
+    """
+    lines: list[str] = []
+    for key, value in data.items():
+        if not isinstance(value, dict):
+            lines.append(f"{key} = {_toml_value(value)}")
+    for key, value in data.items():
+        if isinstance(value, dict):
+            name = f"{prefix}.{key}" if prefix else key
+            lines.append(f"\n[{name}]")
+            lines.append(_toml_dump(value, name).rstrip("\n"))
+    return "\n".join(lines) + "\n"
+
+
+def render_config(plan: Plan, existing: dict | None = None) -> str:
+    """Render config.toml, preserving everything bootstrap does not own.
+
+    On a re-run the previous file may hold the Owner's LLM profiles, daemon
+    tuning or MCP servers; regenerating the file wholesale would silently drop
+    them. Only ``[memory]``, ``[ui]`` and ``[git]`` are managed here, and the
+    default LLM block is emitted only when there is no previous file (otherwise
+    the preserved ``[llm]`` would be a duplicate TOML table).
+    """
+    managed: list[str] = [
+        "# Generated by `saku bootstrap`. Edit freely; this file is git-ignored.",
+        "",
+        "[memory]",
+        f'root = "{plan.memory_path}"',
+    ]
+    if plan.memory == "vault":
+        managed.append(f'inbox_dir = "{plan.memory_path.parent.parent / "00_Inbox"}"')
+
+    managed += ["", "[ui]", f'host = "{plan.host}"', f"port = {plan.port}", f'auth = "{plan.auth_mode}"']
+    if plan.auth_mode != "none":
+        managed.append(f'token_file = "{plan.token_file}"')
+
+    if plan.git_enabled:
+        managed += [
+            "",
+            "[git]",
+            "enabled = true",
+            f'root = "{plan.git_root}"',
+            "push = true",
+            'remote = "origin"',
+            "debounce_seconds = 120",
+            "pull_interval_seconds = 300",
+        ]
+
+    text = ""
+    if existing:
+        kept = {k: v for k, v in existing.items() if k not in MANAGED_SECTIONS}
+        if kept:
+            text += "# Preserved from the previous config\n" + _toml_dump(kept) + "\n"
+    else:
+        text += (
+            "# Generated by `saku bootstrap`. Edit freely; this file is git-ignored.\n\n"
+            "[llm]\n"
+            'active_profile = "local"\n\n'
+            "[llm.profiles.local]\n"
+            f'api_url = "{plan.llm_url}"\n'
+            'api_key = ""\n'
+            f'model = "{plan.llm_model}"\n\n'
+        )
+    return text + "\n".join(managed) + "\n"
+
+
+def render_unit(plan: Plan, user: str) -> str:
+    python = sys.executable
+    memory = plan.memory_path
+    token_dir = plan.token_file.parent
+    hardening = [
+        "NoNewPrivileges=true",
+        "PrivateTmp=true",
+        "ProtectSystem=strict",
+        "ProtectHome=read-only",
+        f"ReadWritePaths={memory} {token_dir} {REPO_ROOT}",
+    ]
+    return "\n".join(
+        [
+            "[Unit]",
+            "Description=SAKU — Self-Adapting Knowledge Unit (Web UI + autonomous daemon)",
+            "After=network-online.target",
+            "Wants=network-online.target",
+            "",
+            "[Service]",
+            "Type=simple",
+            f"User={user}",
+            f"WorkingDirectory={REPO_ROOT}",
+            "EnvironmentFile=-/etc/saku/saku.env",
+            f"Environment=SAKU_CONFIG={REPO_ROOT / 'config.toml'}",
+            f"ExecStart={python} -m saku.ui",
+            "Restart=on-failure",
+            "RestartSec=5",
+            "TimeoutStopSec=20",
+            *hardening,
+            "",
+            "[Install]",
+            "WantedBy=multi-user.target",
+            "",
+        ]
+    )
+
+
+def render_compose(plan: Plan) -> str:
+    return "\n".join(
+        [
+            "# Generated by `saku bootstrap` (docker mode)",
+            "services:",
+            "  saku:",
+            "    build: ../..",
+            "    image: saku:local",
+            "    container_name: saku",
+            "    restart: unless-stopped",
+            f"    command: python -m saku.ui",
+            "    environment:",
+            f"      SAKU_CONFIG: /etc/saku/config.toml",
+            "      SAKU_UI_TOKEN: ${SAKU_UI_TOKEN:?set SAKU_UI_TOKEN in .env}",
+            "      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}",
+            "    volumes:",
+            f"      - {REPO_ROOT / 'config.toml'}:/etc/saku/config.toml:ro",
+            f"      - {plan.memory_path}:{plan.memory_path}",
+            "    ports:",
+            f'      - "{plan.host}:{plan.port}:{plan.port}"',
+            "",
+        ]
+    )
+
+
+def write_artifacts(plan: Plan) -> list[Path]:
+    GENERATED.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    if plan.mode == "systemd":
+        p = GENERATED / "saku.service"
+        p.write_text(render_unit(plan, os.environ.get("USER", "saku")), encoding="utf-8")
+        written.append(p)
+    elif plan.mode == "docker":
+        p = GENERATED / "docker-compose.yml"
+        p.write_text(render_compose(plan), encoding="utf-8")
+        written.append(p)
+    return written
+
+
+# ── plan construction ───────────────────────────────────
+def build_plan(args: argparse.Namespace) -> Plan:
+    plan = Plan()
+    detected_vpn, vpn_ip = detect_vpn()
+    osinfo = detect_os()
+
+    plan.mode = args.mode or ("systemd" if osinfo["systemd"] else "manual")
+    plan.memory = args.memory
+    plan.host = {
+        "local": "127.0.0.1",
+        "netbird": vpn_ip or "127.0.0.1",
+        "tailscale": vpn_ip or "127.0.0.1",
+        "any": "0.0.0.0",
+    }.get(args.bind, args.host or "127.0.0.1")
+    if args.host:
+        plan.host = args.host
+
+    if plan.memory == "git":
+        plan.memory_path = Path(args.memory_path or (Path.home() / "saku-memory")).expanduser()
+        plan.git_enabled = True
+        plan.git_root = str(plan.memory_path)
+    elif plan.memory == "vault":
+        vault = Path(args.memory_path or "").expanduser()
+        if not vault:
+            raise SystemExit("--memory-path is required for --memory vault")
+        plan.memory_path = vault / "_saku" / "memory"
+        # The vault is already a repository: SAKU syncs its own subtree through it,
+        # and pulls the human-side commits that Obsidian makes.
+        plan.git_enabled = True
+        plan.git_root = str(vault)
+    else:
+        plan.memory_path = Path(args.memory_path).expanduser() if args.memory_path else REPO_ROOT / "memory"
+
+    # A token is required as soon as the UI leaves loopback; bootstrap never
+    # silently exposes the tool-capable chat endpoint.
+    if args.auth:
+        plan.auth_mode = args.auth
+    else:
+        plan.auth_mode = "none" if auth.is_loopback(plan.host) else "token"
+    plan.insecure = args.insecure
+    if plan.auth_mode == "none" and not auth.is_loopback(plan.host) and not args.insecure:
+        raise SystemExit(
+            f"[!] refusing auth=none on {plan.host}: pass --insecure if a reverse proxy authenticates."
+        )
+
+    if args.token_file:
+        plan.token_file = Path(args.token_file).expanduser()
+    plan.port = args.port
+    if args.llm_url:
+        plan.llm_url = args.llm_url
+    if args.llm_model:
+        plan.llm_model = args.llm_model
+    return plan
+
+
+def _ensure_git_repo(plan: Plan) -> None:
+    if not plan.git_enabled:
+        return
+    root = Path(plan.git_root)
+    root.mkdir(parents=True, exist_ok=True)
+    if not (root / ".git").exists():
+        subprocess.run(["git", "init", "-q", str(root)], check=False)
+
+
+def print_next_steps(plan: Plan, artifacts: list[Path]) -> None:
+    print()
+    print("  memory root :", plan.memory_path)
+    if plan.auth_mode != "none":
+        print("  auth token  :", plan.token_file, "(0600, persistent — no re-entry on restart)")
+    print("  listen      :", f"{plan.host}:{plan.port}")
+    for p in artifacts:
+        print("  generated   :", p)
+    print()
+    if plan.mode == "systemd":
+        print("  install:")
+        print(f"    sudo install -Dm644 {artifacts[0]} /etc/systemd/system/saku.service")
+        print("    sudo install -d -m700 /etc/saku")
+        print("    sudo install -m600 /dev/null /etc/saku/saku.env")
+        print("    # then put secrets in it (never in config.toml):")
+        print("    #   LITELLM_MASTER_KEY=...")
+        print("    sudo systemctl daemon-reload && sudo systemctl enable --now saku")
+    elif plan.mode == "docker":
+        print("  run:")
+        print("    echo \"SAKU_UI_TOKEN=$(cat %s)\" > .env" % plan.token_file)
+        print(f"    docker compose -f {artifacts[0]} up -d --build")
+    else:
+        print("  run:")
+        print(f"    {sys.executable} -m saku.ui")
+    print()
+    print("  health:")
+    print(f"    curl -fsS http://{plan.host}:{plan.port}/api/health")
+
+
+def _ask(question: str, options: list[tuple[str, str]], default: str) -> str:
+    print(f"\n{question}")
+    for key, label in options:
+        print(f"  {key}) {label}")
+    answer = input(f"選択 [{default}]: ").strip() or default
+    return answer if any(answer == k for k, _ in options) else default
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="saku bootstrap", description=__doc__)
+    parser.add_argument("--mode", choices=["systemd", "docker", "manual"])
+    parser.add_argument("--memory", choices=["local", "git", "vault"], default="local")
+    parser.add_argument("--memory-path")
+    parser.add_argument("--bind", choices=["local", "netbird", "tailscale", "any"], default="local")
+    parser.add_argument("--host")
+    parser.add_argument("--port", type=int, default=8787)
+    parser.add_argument("--auth", choices=["token", "none"])
+    parser.add_argument("--token-file")
+    parser.add_argument("--llm-url")
+    parser.add_argument("--llm-model")
+    parser.add_argument("--insecure", action="store_true", help="allow auth=none on a non-loopback host")
+    parser.add_argument("--force", action="store_true", help="overwrite an existing config.toml")
+    parser.add_argument("--yes", action="store_true", help="accept the flags/defaults without prompting")
+    args = parser.parse_args(argv)
+
+    interactive = sys.stdin.isatty() and not args.yes
+    vpn_kind, vpn_ip = detect_vpn()
+    osinfo = detect_os()
+    print("SAKU bootstrap")
+    print(f"  os      : {osinfo['id']} ({osinfo['family']})  systemd={osinfo['systemd']}  docker={osinfo['docker']}")
+    print(f"  vpn     : {vpn_kind or 'none'} {vpn_ip}")
+
+    if interactive and not args.mode:
+        args.mode = _ask(
+            "起動方法", [("systemd", "systemd サービス"), ("docker", "docker/podman"), ("manual", "手動")], "systemd"
+        )
+    if interactive and args.memory == "local" and not args.memory_path:
+        args.memory = _ask(
+            "memory の置き場所",
+            [("git", "専用 git リポジトリ（サーバー推奨）"), ("local", "チェックアウト内"), ("vault", "既存の Obsidian vault")],
+            "git",
+        )
+        if args.memory in ("git", "vault"):
+            args.memory_path = input("  パス: ").strip() or None
+    if interactive and not args.host and args.bind == "local":
+        default_bind = "netbird" if vpn_kind == "netbird" else "local"
+        args.bind = _ask(
+            "待受アドレス",
+            [("local", "localhost のみ"), ("netbird", f"NetBird ({vpn_ip or '未検出'})"), ("any", "0.0.0.0")],
+            default_bind,
+        )
+
+    plan = build_plan(args)
+    config_path = REPO_ROOT / "config.toml"
+    if config_path.exists() and not args.force:
+        print(f"[!] {config_path} exists; re-run with --force to overwrite.")
+        return 1
+
+    existing = None
+    if config_path.exists():
+        import tomllib
+
+        try:
+            existing = tomllib.loads(config_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            raise SystemExit(f"[!] existing config.toml is not valid TOML: {e}")
+
+    config_path.write_text(render_config(plan, existing), encoding="utf-8")
+    plan.memory_path.mkdir(parents=True, exist_ok=True)
+
+    if plan.auth_mode != "none":
+        ui_cfg = UiConfig(auth="token", token_file=str(plan.token_file))
+        auth.ensure_token(ui_cfg)
+
+    _ensure_git_repo(plan)
+
+    from .setup import init_memory
+
+    init_memory(plan.memory_path)
+
+    artifacts = write_artifacts(plan)
+    print(f"\n[OK] wrote {config_path}")
+    print_next_steps(plan, artifacts)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -66,3 +66,7 @@ tmp*.md
 # Logs
 *.log
 nohup.out
+
+# Bootstrap-generated artifacts (absolute paths of this host)
+packaging/generated/
+config.toml.bak-*

@@ -9,6 +9,12 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 
 ### Added
 
+- Periodic pull for the memory repository (`[git] pull_interval_seconds`, default 300s): the daemon fetches and rebases human-side changes (e.g. Obsidian on another machine) even when the agent has nothing to commit. Uses `pull --rebase --autostash`, so uncommitted work survives; a failed rebase is aborted and logged.
+- `saku bootstrap`: guided setup that asks where memory lives (checkout / own git repo / existing vault), how the UI is exposed (loopback / NetBird / any), how it is authenticated, and how it is supervised (systemd / Docker / manual), then writes `config.toml` and the matching unit or compose file (`packaging/generated/`).
+- Web UI authentication: a persistent token (`~/.config/saku/ui.token`, 0600) instead of a random per-start token, exchanged for an HttpOnly cookie through a login page; `auth = "auto"` keeps loopback open and requires a token once the UI binds a non-loopback address. `SAKU_UI_ALLOW_INSECURE=1` is required to override that.
+- `SAKU_CONFIG` overrides the config file path (tests, several instances from one checkout).
+- `packaging/Dockerfile` (python:slim, arch-independent) with a healthcheck.
+- Opt-in git sync for the memory root (`[git]`): commits only the memory pathspec, rebases and retries a rejected push, debounces bursts into one commit, and logs to `.git/saku-git.log`. `saku sync` runs it immediately; the agent loop and the daemon queue it in the background. See `docs/GIT_SYNC.md`.
 - Growth review for dreaming (#38): promoted `MEMORY.md` entries carry an importance score and a last-seen date (HTML comment, Obsidian-safe). Re-mentioning an entry reinforces it; stale low-score entries decay into an `Archive` section (moved, never deleted). Configured via `[dreaming]` (`review_enabled` / `ttl_days` / `min_score` / `archive_section`).
 - Light-prompt memory recall (#32): lines related to the current message are prefetched from `MEMORY.md` / `principles/` / `wiki/` and injected as a system message, so chat keeps continuity without the full prompt. Configured via `[recall]` (`enabled` / `items` / `max_chars` / `sources`). Wired into the Web UI chat and the daemon chat.md reply path.
 - `WEB_SEARCH` ranks distinct domains first (one aggregator can no longer fill every slot) and accepts `limit=` (1–10, default 5) (#31).

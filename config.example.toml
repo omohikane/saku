@@ -94,6 +94,24 @@ root = "memory"
 # write_denied_exact = ["meta.md"]          # WRITE_FILE で上書き不可
 # delete_denied_exact = ["meta.md", "chat.md", "request_list.md", "genome.md", "soul.md"]
 
+# [git] - メモリのリポジトリ同期（vault を commit / push する）
+# メモリは Markdown なので、git リポジトリに入れておくと耐久性があり、他のマシンの
+# Obsidian は pull するだけで追従できます。既定は無効: 既定の memory root は SAKU の
+# コード checkout の中にあり、そこを commit するとコード履歴に記憶が混ざるためです。
+# [git]
+# enabled = true
+# root = ".."                     # リポジトリのルート。"" なら memory root から自動判定
+# paths = []                      # リポジトリ相対の pathspec。[] なら memory root 自身
+# debounce_seconds = 120          # この秒数に1回までしか同期しない（commit のまとめ）
+# pull_interval_seconds = 300     # 相手側（Obsidian 等）の更新を取り込む間隔
+# push = true                     # false ならローカル commit のみ
+# remote = "origin"
+# branch = ""                     # "" なら現在ブランチの upstream 名を使う
+# ssh_command = "ssh -F ~/.ssh/config"  # システムの ssh 設定が壊れている場合の回避
+# commit_prefix = "saku:"
+# timeout_seconds = 60
+
+
 [agent]
 max_history_messages = 30
 
@@ -193,11 +211,18 @@ auto_initiate_cooldown_seconds = 28800 # SAKU self-initiates every 8 hours
 # root = "plugins"
 # enabled = ["my-plugin", "other.plugin"]
 
-# [ui] - Web UI 設定（Phase B で実装。定義のみ）
+# [ui] - Web UI 設定
+# 認証は「毎回ランダムなトークン」ではなく、初回に一度だけ生成して保存する永続トークン。
+# auth = "auto" は loopback なら認証なし、それ以外のアドレスに bind した時点で
+# トークン必須に切り替わります（チャットはツール実行＝ファイル書き込み/コード実行が
+# できるため、到達可能性と権限を分ける）。
 # [ui]
-# host = "127.0.0.1"
+# host = "127.0.0.1"        # VPN 経由で使うなら NetBird の IP や "0.0.0.0"
 # port = 8787
-# auto_daemon = true   # UI 起動時に自動ループ（daemon）も一緒に起動する
+# auto_daemon = true        # UI 起動時に自動ループ（daemon）も一緒に起動する
+# auth = "auto"             # auto / token / none（none は loopback か --insecure のみ）
+# token_file = ""           # "" = $XDG_CONFIG_HOME/saku/ui.token（0600）
+# cookie_name = "saku_auth"
 
 # [ops] - ホーム運用の承認境界（Phase E で実装。定義のみ）
 # 自動実行OKの操作（読み取り系）と、承認必須の操作（破壊的）を分離する

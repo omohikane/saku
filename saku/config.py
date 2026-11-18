@@ -30,9 +30,20 @@ def expand_env(value: str) -> str:
 def load_config() -> tuple[dict, Path]:
     """Load config.toml and return (config dict, config base directory).
 
-    Falls back to config.example.toml if config.toml is missing.
+    Falls back to config.example.toml if config.toml is missing. ``SAKU_CONFIG``
+    overrides the path (useful for tests and for running several instances from
+    one checkout, each with its own config).
     """
     base = CODE_ROOT.parent
+    override = os.environ.get("SAKU_CONFIG", "").strip()
+    if override:
+        path = Path(expand_env(override)).expanduser()
+        if not path.is_absolute():
+            path = (Path.cwd() / path).resolve()
+        if path.exists():
+            with open(path, "rb") as f:
+                return tomllib.load(f), path.parent
+        return {}, path.parent
     for name in ("config.toml", "config.example.toml"):
         p = base / name
         if p.exists():
@@ -132,10 +143,16 @@ def load_profile(cfg: dict, name: str) -> "LlmConfig | None":
     prof = profiles.get(name)
     if prof is None:
         return None
+    # ${VAR} expansion keeps keys out of the file (the same rule as [memory] root).
+    # A variable that is not set would otherwise be sent literally as the bearer
+    # token, so an unresolved placeholder means "no key configured".
+    api_key = expand_env(prof.get("api_key", "") or "")
+    if "${" in api_key:
+        api_key = ""
     return LlmConfig(
         name=name,
         api_url=prof.get("api_url", ""),
-        api_key=prof.get("api_key") or _env_api_key(name),
+        api_key=api_key or _env_api_key(name),
         model=prof.get("model", ""),
         context_window=prof.get("context_window", 0),
         working_budget_tokens=prof.get("working_budget_tokens", 0),
@@ -156,7 +173,8 @@ def load_active_llm(cfg: dict) -> LlmConfig:
     return LlmConfig(
         name="legacy",
         api_url=llm_cfg.get("api_url", "http://127.0.0.1:8080/v1/chat/completions"),
-        api_key=llm_cfg.get("api_key") or os.environ.get("OPENAI_API_KEY", ""),
+        api_key=expand_env(llm_cfg.get("api_key", "") or "")
+        or os.environ.get("OPENAI_API_KEY", ""),
         model=llm_cfg.get("model", ""),
     )
 
@@ -385,4 +403,79 @@ def load_recall_config(cfg: dict) -> RecallConfig:
         items=r.get("items", 3),
         max_chars=r.get("max_chars", 600),
         sources=list(r.get("sources", ["MEMORY.md", "principles/", "wiki/"])),
+    )
+
+
+# ── Git Sync Config ─────────────────────────────────────
+# SAKU's memory can live inside a git repository (e.g. an Obsidian vault). When
+# enabled, writes are committed and pushed on a debounce so the vault stays in
+# sync without a second, conflicting sync mechanism.
+#
+# Disabled by default on purpose: the default memory root (`memory/`) sits inside
+# the SAKU code checkout, and committing there would mix agent memory into the
+# code history. Opt in explicitly with `[git] enabled = true`.
+@dataclass
+class GitConfig:
+    enabled: bool = False
+    root: str = ""  # repository root; "" = detect from the memory root
+    paths: list[str] = field(default_factory=list)  # repo-relative pathspecs; [] = memory root itself
+    debounce_seconds: int = 120  # at most one sync attempt per window
+    pull_interval_seconds: int = 300  # how often to fetch remote changes (Obsidian etc.)
+    push: bool = True
+    remote: str = "origin"
+    branch: str = ""  # "" = current branch
+    ssh_command: str = ""  # e.g. "ssh -F ~/.ssh/config" when the system ssh config is broken
+    commit_prefix: str = "saku:"
+    timeout_seconds: int = 60
+    max_log_bytes: int = 200_000
+
+
+def load_git_config(cfg: dict) -> GitConfig:
+    g = cfg.get("git", {})
+    return GitConfig(
+        enabled=g.get("enabled", False),
+        root=expand_env(g.get("root", "")),
+        paths=list(g.get("paths", [])),
+        debounce_seconds=g.get("debounce_seconds", 120),
+        pull_interval_seconds=g.get("pull_interval_seconds", 300),
+        push=g.get("push", True),
+        remote=g.get("remote", "origin"),
+        branch=g.get("branch", ""),
+        ssh_command=expand_env(g.get("ssh_command", "")),
+        commit_prefix=g.get("commit_prefix", "saku:"),
+        timeout_seconds=g.get("timeout_seconds", 60),
+        max_log_bytes=g.get("max_log_bytes", 200_000),
+    )
+
+
+def get_git_config() -> GitConfig:
+    """Return the [git] config (re-read on every call; cheap toml parse)."""
+    cfg, _ = load_config()
+    return load_git_config(cfg)
+
+
+# ── Web UI Config ───────────────────────────────────────
+# The UI was written for localhost. On a server it is reachable over a VPN, so
+# authentication must be a first-class setting rather than an assumption.
+# ``auth = "auto"`` keeps localhost friction-free (no auth on loopback) and
+# requires a token as soon as the server binds a non-loopback address.
+@dataclass
+class UiConfig:
+    host: str = "127.0.0.1"
+    port: int = 8787
+    auto_daemon: bool = True
+    auth: str = "auto"  # auto / token / none
+    token_file: str = ""  # "" = $XDG_CONFIG_HOME/saku/ui.token
+    cookie_name: str = "saku_auth"
+
+
+def load_ui_config(cfg: dict) -> UiConfig:
+    u = cfg.get("ui", {})
+    return UiConfig(
+        host=u.get("host", "127.0.0.1"),
+        port=int(u.get("port", 8787)),
+        auto_daemon=u.get("auto_daemon", True),
+        auth=u.get("auth", "auto"),
+        token_file=expand_env(u.get("token_file", "")),
+        cookie_name=u.get("cookie_name", "saku_auth"),
     )
