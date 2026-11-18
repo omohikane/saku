@@ -166,8 +166,13 @@ def run_agent_loop(
 
     # Final-answer rescue: a research-style turn can spend every turn on tools (or the
     # repeat guard halts the loop), leaving the caller with nothing to show. Ask once
-    # more, explicitly without tools, and use that as the visible answer.
-    if not final_visible and not last_raw.startswith("[ERROR]"):
+    # more, explicitly without tools, and use that as the visible answer. A halted
+    # loop (#76) skips the rescue: the stop signal means no more LLM calls either.
+    if (
+        not final_visible
+        and not last_raw.startswith("[ERROR]")
+        and not (should_stop is not None and should_stop())
+    ):
         _status("writing answer")
         rescue_history = list(work) + [
             {
