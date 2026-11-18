@@ -110,6 +110,8 @@ uv run python -m saku.cli setup /path/to/vault/_saku/memory   # explicit path
 
 ## 4. systemd Service
 
+The unit is the runtime boundary as well as the supervisor: `User`, `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=read-only` and `ReadWritePaths` decide what the agent's tools can reach. The rationale and the remaining gaps (EXECUTE_CODE isolation, egress, resource limits) are in `docs/ADR_RUNTIME_BOUNDARY.md`.
+
 A single-process unit for Web UI + daemon is bundled
 (`packaging/saku.service`).
 
