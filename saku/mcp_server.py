@@ -234,18 +234,41 @@ def _auth_middleware(app, tokens, on_reject=None):
     return wrapped
 
 
-def make_app(server: Server, token: str = "", extra_tokens=(), on_auth_reject=None):
+def make_app(server: Server, token: str = "", extra_tokens=(), on_auth_reject=None,
+             bind_host: str = "127.0.0.1"):
     """Return the Starlette ASGI app (with optional Bearer-token auth).
 
     ``token`` is the [mcp.server] operator token; ``extra_tokens`` are talk
     caller tokens, which pass the HTTP gate but are scoped to the talk tool
     by the handler.
+
+    ``bind_host`` is passed to the SDK so it does not assume a localhost-only
+    deployment: the SDK auto-enables DNS-rebinding protection for 127.0.0.1 and
+    then rejects every other Host header with 421. Binding a VPN/tunnel address
+    must not inherit that assumption — the Bearer token remains the gate.
     """
-    app = server.streamable_http_app()
+    app = server.streamable_http_app(host=bind_host)
     tokens = ([token] if token else []) + [t for t in extra_tokens if t]
     if tokens:
         app = _auth_middleware(app, tokens, on_reject=on_auth_reject)
     return app
+
+
+def _dual_stack_socket(host: str, port: int):
+    """A socket that accepts both IPv6 and IPv4-mapped peers.
+
+    uvicorn's own ``host="::"`` binding leaves ``IPV6_V6ONLY`` set, so IPv4 clients
+    (LAN, VPN) cannot connect. Binding the socket here and handing the fd to
+    uvicorn keeps one listener for both families.
+    """
+    import socket
+
+    sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+    sock.bind((host, port))
+    sock.listen(2048)
+    return sock
 
 
 def serve(host: str = "127.0.0.1", port: int = 8765, token: str = "", talk_engine=None) -> None:
@@ -259,11 +282,15 @@ def serve(host: str = "127.0.0.1", port: int = 8765, token: str = "", talk_engin
         if talk_engine is not None
         else None
     )
-    app = make_app(server, token, extra_tokens=extra, on_auth_reject=on_reject)
+    app = make_app(server, token, extra_tokens=extra, on_auth_reject=on_reject, bind_host=host)
     print(f"SAKU MCP server on http://{host}:{port}/mcp")
     print(f"Token auth: {'on' if (token or extra) else 'OFF'}")
     print(f"Talk: {'on (%d caller(s))' % len(extra) if talk_engine is not None else 'off'}")
-    uvicorn.run(app, host=host, port=port, log_level="warning")
+    if ":" in host:
+        sock = _dual_stack_socket(host, port)
+        uvicorn.run(app, fd=sock.fileno(), log_level="warning")
+    else:
+        uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 def main() -> None:

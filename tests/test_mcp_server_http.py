@@ -110,6 +110,28 @@ def test_auth_required():
         _stop(srv)
 
 
+def test_dual_stack_socket_accepts_both_families():
+    import socket
+
+    from saku import mcp_server
+
+    try:
+        sock = mcp_server._dual_stack_socket("::", 0)
+    except OSError:
+        return  # no IPv6 on this host: nothing to verify
+    try:
+        port = sock.getsockname()[1]
+        for family, addr in ((socket.AF_INET, ("127.0.0.1", port)), (socket.AF_INET6, ("::1", port))):
+            client = socket.socket(family, socket.SOCK_STREAM)
+            client.settimeout(2)
+            try:
+                client.connect(addr)
+            finally:
+                client.close()
+    finally:
+        sock.close()
+
+
 def run_tests():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in tests:

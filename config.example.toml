@@ -243,6 +243,7 @@ auto_initiate_cooldown_seconds = 28800 # SAKU self-initiates every 8 hours
 # token = "change-me"        # 外部クライアントは Authorization: Bearer <token>
 # bind = "127.0.0.1"
 # port = 8765
+# bind = "::"           # IPv4/IPv6 両対応（cloudflared は [::1] に接続する）
 # 接続する外部 MCP サーバ（クライアント方向・実装済み）
 # 各サーバのツールは tools/list で自動発見され、[[ツール名]] ブロックで呼び出せる
 # [mcp.servers.homeassistant]

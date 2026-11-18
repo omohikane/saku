@@ -203,6 +203,14 @@ def test_daemon_thread_spawns():
         daemon_mod.main = original
 
 
+def test_server_class_follows_bind_family():
+    import socket
+
+    assert ui._server_class("::") is ui._DualStackHTTPServer
+    assert ui._server_class("0.0.0.0") is ui.ThreadingHTTPServer
+    assert ui._DualStackHTTPServer.address_family == socket.AF_INET6
+
+
 def run_tests():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in tests:
