@@ -522,6 +522,19 @@ class TalkConfig:
     max_per_hour: int = 30  # accepted messages per caller per hour
     history_messages: int = 20  # per-caller in-memory history cap (messages, not turns)
 
+    # Conversation continuity (#100): load the caller's past records — talk
+    # audit-log openings, the mail thread, journal conversation notes (#101)
+    # — into the talk prompt as a framed record, so a brain swap or a server
+    # restart no longer resets the relationship. This is a flag for the
+    # context feature, not for talk itself (see the section comment above).
+    # Off by default, like [mail]: enabling it changes what a running
+    # instance says, so the Owner opts in explicitly.
+    context_enabled: bool = False
+    context_talk_turns: int = 6  # past talk exchanges per caller (audit openings)
+    context_mail_letters: int = 3  # most recent letters from the caller (+ SAKU's replies)
+    context_journal_notes: int = 2  # most recent journal conversation notes (#101)
+    context_max_chars: int = 4000  # total character budget for the record block
+
     callers: list[TalkCaller] = field(default_factory=list)
 
 
@@ -542,6 +555,11 @@ def load_talk_config(cfg: dict) -> TalkConfig:
         max_chars=t.get("max_chars", 1500),
         max_per_hour=t.get("max_per_hour", 30),
         history_messages=t.get("history_messages", 20),
+        context_enabled=t.get("context_enabled", False),
+        context_talk_turns=t.get("context_talk_turns", 6),
+        context_mail_letters=t.get("context_mail_letters", 3),
+        context_journal_notes=t.get("context_journal_notes", 2),
+        context_max_chars=t.get("context_max_chars", 4000),
         callers=callers,
     )
 
