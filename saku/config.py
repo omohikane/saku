@@ -569,6 +569,35 @@ def load_heartbeat_config(cfg: dict) -> HeartbeatConfig:
     )
 
 
+# ── Daily-note Learning Config (#68) ────────────────────
+# `saku learn` reads the Owner's Obsidian daily notes (read-only) and promotes
+# durable items into MEMORY.md through the dreaming path. The default run is a
+# dry run: nothing is written until --apply. `redact` masks phone numbers and
+# e-mail addresses in the text sent to the model and stored in memory.
+@dataclass
+class LearningConfig:
+    dir: str = ""  # "" = <vault>/01_Notes/Daily_Note (vault owns the memory root)
+    state_file: str = "state/learning.json"
+    max_notes_per_run: int = 20
+    min_chars: int = 200  # below this a note is treated as template-only
+    max_chars: int = 12000  # excerpt cap per note
+    redact: bool = True
+    write_memory: bool = True
+
+
+def load_learning_config(cfg: dict) -> LearningConfig:
+    l = cfg.get("learning", {})
+    return LearningConfig(
+        dir=l.get("dir", ""),
+        state_file=l.get("state_file", "state/learning.json"),
+        max_notes_per_run=int(l.get("max_notes_per_run", 20)),
+        min_chars=int(l.get("min_chars", 200)),
+        max_chars=int(l.get("max_chars", 12000)),
+        redact=bool(l.get("redact", True)),
+        write_memory=bool(l.get("write_memory", True)),
+    )
+
+
 # ── Git Sync Config ─────────────────────────────────────
 # SAKU's memory can live inside a git repository (e.g. an Obsidian vault). When
 # enabled, writes are committed and pushed on a debounce so the vault stays in
