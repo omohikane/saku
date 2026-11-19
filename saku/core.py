@@ -253,6 +253,7 @@ def build_recall_message(message: str) -> "dict | None":
             items=rcfg.items,
             max_chars=rcfg.max_chars,
             sources=rcfg.sources,
+            archive_section=saku_config.load_dreaming_config(_cfg).archive_section,
         )
         return {"role": "user", "content": f"[recall]\n{block}"} if block else None
     except Exception:

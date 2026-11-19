@@ -82,6 +82,63 @@ def test_recall_strips_entry_metadata():
     assert "Ownerは朝の会話を好む" in block
 
 
+def test_archived_entries_are_not_current_knowledge():
+    """#128: an entry moved to ## Archive must not answer a normal query."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "MEMORY.md").write_text(
+            "# MEMORY\n\n## 永続的な事実\n"
+            "- 2026-01-01: 現在の設定はA <!-- s:3 last:2026-11-01 -->\n"
+            "\n## Archive\n"
+            "- 2025-01-01: 古い設定はB <!-- s:1 last:2025-01-01 -->\n",
+            encoding="utf-8",
+        )
+        current = recall.recall(root, "設定はどうなってる？")
+        assert "現在の設定はA" in current
+        assert "古い設定はB" not in current
+
+        past = recall.recall(root, "以前の設定はどうだった？")
+        assert "古い設定はB" in past
+        assert "（過去）" in past
+        assert "現在の設定はA" in past
+
+
+def test_archive_detection_is_memory_md_only():
+    """A heading named Archive in another note is not a decay marker."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "principles").mkdir()
+        (root / "principles" / "x.md").write_text(
+            "# 原則\n\n## Archive\n- 設定の記録\n", encoding="utf-8"
+        )
+        block = recall.recall(root, "設定")
+        assert "設定の記録" in block
+        assert "（過去）" not in block
+
+
+def test_iter_memory_items_reports_status():
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "MEMORY.md").write_text(
+            "## 好み・傾向\n- 2026-01-01: 現在の設定はAです <!-- s:2 last:2026-01-01 -->\n"
+            "## Archive\n- 2025-01-01: 過去の設定はBでした <!-- s:0 last:2025-01-01 -->\n",
+            encoding="utf-8",
+        )
+        items = list(recall.iter_memory_items(root, ["MEMORY.md"]))
+        assert [i["status"] for i in items] == ["active", "archived"]
+        assert items[0]["text"].startswith("現在の設定はAです")
+        assert items[1]["text"].startswith("過去の設定はBでした")
+
+
 def test_load_recall_config_defaults():
     d = cfg_mod.load_recall_config({})
     assert d.enabled is True
