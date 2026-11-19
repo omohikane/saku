@@ -562,6 +562,27 @@ def load_talk_config(cfg: dict) -> TalkConfig:
     )
 
 
+# ── Conversation Journal Config (#101) ──────────────────
+# After a talk / mail conversation, SAKU writes a short journal note in its
+# own words (who it talked with, what about, how it felt), so the nightly
+# reflection — which reads the journal — can take external conversations
+# into account. Only the summary is journalled, never the conversation body,
+# and nothing here writes principles / MEMORY.md directly: promotion stays
+# with reflection and dreaming, exactly as for Owner conversations.
+#
+# Disabled by default on purpose (same rationale as [mail]): merging this
+# feature must not change the behavior of a running instance. Opt in
+# explicitly with `[convjournal] enabled = true`.
+@dataclass
+class ConvJournalConfig:
+    enabled: bool = False
+
+
+def load_convjournal_config(cfg: dict) -> ConvJournalConfig:
+    c = cfg.get("convjournal", {})
+    return ConvJournalConfig(enabled=bool(c.get("enabled", False)))
+
+
 # ── Kill Switch Config (#76) ────────────────────────────
 # The kill switch stops autonomous operation immediately: while the flag
 # file exists, the daemon starts no autonomous action (ticks, inbox

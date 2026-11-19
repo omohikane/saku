@@ -19,8 +19,11 @@ Further separations that must not blur (same as mail):
 
 * A talk turn never executes tools, never writes MEMORY.md / principles /
   wiki, and never creates request_list entries. Letter bodies stay out of
-  memory; so do talk turns (v1 scope: exchanges live in the audit log only,
-  never in chat.md or the journal).
+  memory; so do talk turns themselves (exchanges live in the audit log,
+  never in chat.md). With ``[convjournal] enabled`` (#101), a short summary
+  of each exchange in SAKU's own words — never the turn itself — is added
+  to the journal for the nightly reflection, which remains the only path
+  by which anything from a conversation can be promoted.
 * Knowledge import stays with the existing ``00_Inbox`` path.
 
 Audit: every exchange and rejection is appended to ``talk.log`` beside the
@@ -48,6 +51,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import config as saku_config
+from . import convjournal
 from . import killswitch
 from .llm import chat_stream as _llm_chat_stream
 from .mail import _digest, _identity_text
@@ -62,6 +66,11 @@ _AUTH_REJECT_LOG_INTERVAL = 60.0  # middleware 401s are audited at most once a m
 # body. ``history`` is the caller's prior conversation as LLM messages.
 # Tests inject a stub; the default builds a tools-disabled LLM call.
 ReplyFn = Callable[[str, str, list], str]
+
+# A note function takes (caller, message, reply) and returns SAKU's journal
+# note about the exchange (#101). Tests inject a stub; the default generates
+# the note with a tools-disabled LLM call (see convjournal.generate_note).
+NoteFn = Callable[[str, str, str], str]
 
 
 class TalkRejected(Exception):
@@ -113,8 +122,14 @@ class TalkEngine:
         llm_cfg=None,
         reply_fn: "ReplyFn | None" = None,
         reserved_tokens: "tuple[str, ...]" = (),
+        note_fn: "NoteFn | None" = None,
     ) -> None:
         self.tcfg = saku_config.load_talk_config(cfg)
+        # Conversation journal (#101): parsed once here; the engine's talk()
+        # consults it after each successful exchange.
+        self.convjournal_cfg = saku_config.load_convjournal_config(cfg)
+        self.guard_cfg = saku_config.load_guard_config(cfg)
+        self.note_fn = note_fn
         self.memory_root = Path(memory_root)
         # The audit directory follows the mail channel's configured location:
         # one synced conversation folder for both channels.
@@ -294,6 +309,32 @@ class TalkEngine:
                 "talk:replied", caller,
                 _digest(reply_text, hashlib.sha256(reply_text.encode("utf-8")).hexdigest()),
             )
+            # Conversation journal (#101): SAKU's own summary of this
+            # exchange joins the day's journal, where the nightly reflection
+            # will find it. Talk has no session-end event — each call is one
+            # exchange — so the note is per-exchange; waiting for an "end"
+            # would lose every conversation that stops mid-way. Only the
+            # summary is recorded, never the message itself, and the reply
+            # is already decided, so a journal failure changes nothing.
+            if self.convjournal_cfg.enabled:
+                try:
+                    note = ""
+                    if self.note_fn is not None:
+                        note = self.note_fn(caller, message, reply_text)
+                    elif self.llm_cfg is not None:
+                        note = convjournal.generate_note(
+                            self.llm_cfg, _identity_text(self.memory_root),
+                            channel=convjournal.CHANNEL_TALK, partner=caller,
+                            incoming=message, outgoing=reply_text,
+                        )
+                    if note:
+                        convjournal.append_entry(
+                            self.memory_root,
+                            channel=convjournal.CHANNEL_TALK, partner=caller,
+                            note=note, guard_cfg=self.guard_cfg,
+                        )
+                except Exception:
+                    logger.exception("talk: conversation journal failed")
             return reply_text
 
 
