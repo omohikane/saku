@@ -15,9 +15,11 @@ active_profile = "local"
 #                tasks, nightly reflection, dreaming, weekly review
 #   sort       — clipping classification (`saku sort`). Sends note excerpts,
 #                so point it at a model you are willing to send the vault to.
+#   learn      — daily-note learning (`saku learn`). Sends note excerpts too.
 # chat = "local"
 # background = "local"
 # sort = "local"
+# learn = "local"
 
 # Fallback settings (used if profiles are not defined or for backward compatibility)
 api_url = "http://127.0.0.1:8080/v1/chat/completions"
@@ -229,6 +231,19 @@ root = "memory"
 # file = "state/heartbeat.json"
 # max_age_seconds = 900        # これを超えたら stale
 # notify_on_gap = true         # 再起動時に空白時間を Owner へ一度だけ知らせる
+
+
+# デイリーノートからの学習（`saku learn`）
+# Owner の Obsidian デイリーノートを読み取り専用で読み、MEMORY.md に蒸留する。
+# 既定は dry-run（何も書かない）。--apply でのみ MEMORY.md と state を更新する。
+# [learning]
+# dir = ""                      # "" = <vault>/01_Notes/Daily_Note
+# state_file = "state/learning.json"
+# max_notes_per_run = 20
+# min_chars = 200               # これ未満はテンプレのみとみなす
+# max_chars = 12000             # 1ノートあたりモデルに渡す上限
+# redact = true                 # 電話番号・メールを伏字にしてから送る/保存する
+# write_memory = true
 
 
 [agent]
