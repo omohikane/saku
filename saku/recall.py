@@ -30,6 +30,18 @@ _SKIP_TERMS = {
     "the", "and", "for", "with", "you", "that", "this", "what", "how",
 }
 
+# Kana-only terms used to be dropped wholesale to keep particles out, which
+# left everyday hiragana questions with no search terms at all (#134). Keep
+# kana content words and filter function words instead; bigrams of particles
+# ("れは", "はそ") are mostly harmless because they score low, but the frequent
+# ones are listed so a casual sentence cannot flood the query.
+_KANA_SKIP = _SKIP_TERMS | {
+    "いつ", "その", "あの", "この", "どの", "ここ", "そこ", "また", "まだ", "もう",
+    "よう", "ため", "とき", "ところ", "ばあい", "ない", "なく", "たい", "れて",
+    "です", "ます", "でしょう", "ますか", "ですか", "でしょうか", "ください",
+    "の", "は", "が", "に", "を", "で", "と", "も", "や", "か", "ね", "よ", "な", "わ", "へ",
+}
+
 DEFAULT_SOURCES = ["MEMORY.md", "principles/", "skills/", "wiki/"]
 DEFAULT_ITEMS = 3
 DEFAULT_MAX_CHARS = 600
@@ -57,11 +69,17 @@ def terms(text: str, *, max_terms: int = MAX_TERMS) -> list[str]:
 
     for run in _JP_RUN_RE.findall(text):
         for segment in _SCRIPT_SEG_RE.findall(run):
-            if len(segment) >= 2 and not _KANA_ONLY_RE.match(segment):
+            kana_only = bool(_KANA_ONLY_RE.match(segment))
+            # A long hiragana run is a whole sentence without spaces; keep it
+            # only when it is short enough to be a word. Bigrams cover the rest.
+            if 2 <= len(segment) and (
+                (not kana_only and len(segment) <= 40)
+                or (kana_only and len(segment) <= 8 and segment not in _KANA_SKIP)
+            ):
                 _add(segment)
             for i in range(len(segment) - 1):
                 bigram = segment[i : i + 2]
-                if _KANA_ONLY_RE.match(bigram):
+                if _KANA_ONLY_RE.match(bigram) and bigram in _KANA_SKIP:
                     continue
                 _add(bigram)
 
