@@ -7,6 +7,10 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 
 ## [Unreleased]
 
+### Fixed
+
+- A chat turn whose LLM stream closed without producing any content no longer looks like an ordinary empty reply: the call returns `[ERROR] empty reply from '<profile>': the stream ended without content after Ns`, and the daemon logs every failed call (with its reason) instead of only "no text". Provider-side deadlines and rejected credentials were previously invisible in `saku.log`. (#113)
+
 ### Added
 
 - Dual-stack listening for the Web UI and the MCP server: `[ui] host` / `[mcp.server] bind` may be `"::"`, and the MCP SDK no longer assumes a localhost-only deployment (it answered 421 to any other Host header). cloudflared dials the origin over `[::1]`, which an IPv4-only bind cannot answer.

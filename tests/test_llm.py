@@ -21,23 +21,28 @@ from saku.config import LlmConfig
 
 
 class _FakeResponse:
+    def __init__(self, lines=None):
+        self._lines = lines
+
     def raise_for_status(self):
         pass
 
     def iter_lines(self):
+        if self._lines is not None:
+            return iter(self._lines)
         return iter([
             b'data: {"choices":[{"delta":{"content":"ok"}}]}',
             b"data: [DONE]",
         ])
 
 
-def _capture(llm_cfg):
+def _capture(llm_cfg, lines=None):
     captured = {}
 
     def _fake_post(url, json=None, headers=None, stream=None, timeout=None):
         captured["url"] = url
         captured["payload"] = json
-        return _FakeResponse()
+        return _FakeResponse(lines)
 
     original = llm_mod.requests.post
     llm_mod.requests.post = _fake_post
@@ -92,6 +97,36 @@ def test_load_profile_reads_reasoning_effort():
     assert prof.reasoning_effort == "none"
     plain = cfg_mod.load_profile({"llm": {"profiles": {"x": {"api_url": "u"}}}}, "x")
     assert plain.reasoning_effort == ""
+
+
+def test_empty_stream_is_reported_as_an_error():
+    """#113: a stream that closes without content must not look like a reply."""
+    lines = [
+        b'data: {"choices":[{"delta":{"role":"assistant"}}]}',
+        b'data: {"choices":[{"delta":{"content":""}}]}',
+        b"data: [DONE]",
+    ]
+    _captured, out = _capture(LlmConfig(name="opencode-ds", api_url="http://x"), lines)
+    assert out.startswith("[ERROR] empty reply from 'opencode-ds'")
+    assert "without content" in out
+
+
+def test_whitespace_only_stream_is_reported_as_an_error():
+    _captured, out = _capture(
+        LlmConfig(name="x", api_url="http://x"),
+        [b'data: {"choices":[{"delta":{"content":"\\n\\n"}}]}', b"data: [DONE]"],
+    )
+    assert out.startswith("[ERROR]")
+
+
+def test_think_only_stream_is_not_an_error():
+    """Tool/thinking text is still a response: only a truly empty stream errors."""
+    _captured, out = _capture(
+        LlmConfig(name="x", api_url="http://x"),
+        [b'data: {"choices":[{"delta":{"content":"<think>memo</think>"}}]}', b"data: [DONE]"],
+    )
+    assert not out.startswith("[ERROR]")
+    assert "<think>memo</think>" in out
 
 
 def test_load_profile_expands_api_key_from_env():

@@ -425,6 +425,12 @@ def run_agent_loop(
     errored = (not result.last_raw) or result.last_raw.startswith("[ERROR]")
     acted = result.action_taken and not errored
 
+    if errored and result.last_raw:
+        # #113: a failed call used to leave only "no text" in the log. The error
+        # (bad credential, gateway deadline, unreachable endpoint) is what tells
+        # the Owner why chat went quiet, so record it as one.
+        logger.error("[%s] LLM call failed: %s", log_action_name, result.last_raw[:500])
+
     if acted:
         # A tick can act (write a principle) and still end with [NO_ACTION]: never
         # store a journal entry whose whole content is the marker.

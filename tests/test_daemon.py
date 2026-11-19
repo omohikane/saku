@@ -924,6 +924,47 @@ def test_self_initiation_keeps_unfinished_draft_at_tail():
         assert "**Owner**" in chat.read_text(encoding="utf-8")
 
 
+def test_llm_failure_is_logged_with_its_reason():
+    """#113: a failed call must leave the reason in the log, not just "no text"."""
+    import logging
+
+    from saku.agent_loop import LoopResult
+
+    records = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    handler = _Capture(level=logging.ERROR)
+    originals = {
+        "_run_agent_loop": daemon_mod._run_agent_loop,
+        "build_light_system_prompt": daemon_mod.agent.build_light_system_prompt,
+    }
+    daemon_mod._run_agent_loop = lambda *a, **k: LoopResult(
+        visible="",
+        thinking="",
+        last_raw="[ERROR] empty reply from 'opencode-ds': the stream ended without content after 270s",
+        history=[],
+        action_taken=False,
+    )
+    daemon_mod.agent.build_light_system_prompt = lambda: "system"
+    daemon_mod.logger.addHandler(handler)
+    try:
+        acted, visible = daemon_mod.run_agent_loop(
+            "疎通確認", "chat返信", light=True, log_action=False
+        )
+    finally:
+        daemon_mod.logger.removeHandler(handler)
+        daemon_mod._run_agent_loop = originals["_run_agent_loop"]
+        daemon_mod.agent.build_light_system_prompt = originals["build_light_system_prompt"]
+
+    assert acted is False
+    assert visible == ""
+    messages = [r.getMessage() for r in records]
+    assert any("LLM call failed" in m and "without content" in m for m in messages), messages
+
+
 def run_tests():
     global _PASS, _FAIL
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

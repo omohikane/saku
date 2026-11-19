@@ -5,6 +5,7 @@ It does not depend on global API_URL / API_KEY / MODEL.
 """
 
 import json
+import time
 from typing import Callable, Optional
 
 import requests
@@ -65,6 +66,7 @@ def chat_stream(
 
     emit = on_token if on_token is not None else _default_emit
 
+    started = time.time()
     full = ""
     in_thinking = False
     tag_buffer = ""
@@ -139,6 +141,16 @@ def chat_stream(
 
     _flush()
     emit("\n")
+
+    # #113: a stream that closes without ever producing content used to return
+    # "" and the caller could not tell it apart from "the model had nothing to
+    # say". Every consumer already treats a leading [ERROR] as a failed call,
+    # so report the silent case as one instead of letting it look like a reply.
+    if not full.strip():
+        return (
+            f"[ERROR] empty reply from '{llm_cfg.name}': "
+            f"the stream ended without content after {time.time() - started:.0f}s"
+        )
     return full
 
 
