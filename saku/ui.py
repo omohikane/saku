@@ -56,6 +56,26 @@ def _auth_state() -> tuple[str, str]:
 # Session history (client_id -> messages). The system prompt is index 0.
 _sessions: dict[str, list[dict]] = {}
 _sessions_lock = threading.Lock()
+# One execution lock per session (#131). Two requests from the same client
+# (a duplicated tab, a retried fetch) used to run concurrently and each saved
+# its own result.history last, so one exchange silently disappeared. Requests
+# for *different* sessions keep running in parallel.
+_session_locks: dict[str, threading.Lock] = {}
+
+
+def _session_lock(client_id: str) -> threading.Lock:
+    with _sessions_lock:
+        return _session_locks.setdefault(client_id, threading.Lock())
+
+
+def _fresh_system_prompt() -> str:
+    """Build the light prompt for this turn.
+
+    The prompt carries the current time and the continuity block, so caching it
+    for the lifetime of a session made a long conversation sound like it was
+    stuck in the hour it started.
+    """
+    return agent.build_light_system_prompt()
 
 # ── Login (token exchange for a cookie) ──────────────────
 # The token is pasted once; afterwards the browser carries an HttpOnly cookie.
@@ -446,42 +466,51 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(_sse({"type": "error", "text": "メッセージが空です"}).encode("utf-8"))
             return
 
-        with _sessions_lock:
-            history = _sessions.get(client_id)
-            if history is None:
-                history = [{"role": "system", "content": agent.build_light_system_prompt()}]
-            history = list(history)
+        # #131: the whole turn -- snapshot, inference, save -- runs under the
+        # session's lock. Without it, two concurrent turns both read the same
+        # history and the slower one overwrote the faster one's exchange.
+        with _session_lock(client_id):
+            with _sessions_lock:
+                history = _sessions.get(client_id)
+                history = list(history) if history else []
+            system_prompt = _fresh_system_prompt()
+            if history and history[0].get("role") == "system":
+                history[0] = {"role": "system", "content": system_prompt}
+            else:
+                history.insert(0, {"role": "system", "content": system_prompt})
+
             recall_msg = agent.build_recall_message(message)
             if recall_msg:
                 history.append(recall_msg)
             history.append({"role": "user", "content": message})
-            _sessions[client_id] = history
-
-        try:
-            result = run_agent_loop(
-                history,
-                agent.llm_for_role("chat"),
-                _CTX,
-                _MEMORY_ROOT,
-                agent.CODE_ROOT,
-                on_visible=lambda t: self._emit({"type": "visible", "text": t}),
-                on_tool_result=lambda t: self._emit({"type": "tool", "text": t}),
-                on_status=lambda s: self._emit({"type": "status", "text": s}),
-            )
             with _sessions_lock:
-                _sessions[client_id] = result.history
-            if result.last_raw.startswith("[ERROR]") and not result.visible:
-                self._emit({"type": "error", "text": result.last_raw})
-            elif result.visible:
-                agent.save_journal(message, result.visible, thinking=result.thinking)
-            self._emit({"type": "done"})
-        except BrokenPipeError:
-            pass
-        except Exception as e:
+                _sessions[client_id] = list(history)
+
             try:
-                self._emit({"type": "error", "text": f"[ERROR] {e}"})
-            except Exception:
+                result = run_agent_loop(
+                    history,
+                    agent.llm_for_role("chat"),
+                    _CTX,
+                    _MEMORY_ROOT,
+                    agent.CODE_ROOT,
+                    on_visible=lambda t: self._emit({"type": "visible", "text": t}),
+                    on_tool_result=lambda t: self._emit({"type": "tool", "text": t}),
+                    on_status=lambda s: self._emit({"type": "status", "text": s}),
+                )
+                with _sessions_lock:
+                    _sessions[client_id] = result.history
+                if result.last_raw.startswith("[ERROR]") and not result.visible:
+                    self._emit({"type": "error", "text": result.last_raw})
+                elif result.visible:
+                    agent.save_journal(message, result.visible, thinking=result.thinking)
+                self._emit({"type": "done"})
+            except BrokenPipeError:
                 pass
+            except Exception as e:
+                try:
+                    self._emit({"type": "error", "text": f"[ERROR] {e}"})
+                except Exception:
+                    pass
 
     def _emit(self, event: dict) -> None:
         self.wfile.write(_sse(event).encode("utf-8"))
