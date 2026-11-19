@@ -21,7 +21,7 @@ from .config import ContextConfig, DEFAULT_WORKING_BUDGET_TOKENS, LlmConfig
 from .context import enforce_budget, needs_compaction, trim_old_tool_results, truncate_history
 from .llm import chat_stream
 from .thinking import internal_markers_in, split_thinking, strip_tool_blocks
-from .transport import exec_tools, executable_text, list_tool_calls
+from .transport import exec_tools, executable_text, list_tool_calls, tool_call_text
 from .verify import unbacked_writes
 
 
@@ -32,7 +32,12 @@ class LoopResult:
     last_raw: str  # last raw LLM response
     history: list[dict]  # history after the loop (for the caller to take over)
     action_taken: bool
-    turns: int = 0
+    turns: int = 0  # kept for compatibility; equals llm_calls (#130)
+    # #130: why the loop stopped and what it actually did.
+    finish_reason: str = "answered"
+    llm_calls: int = 0
+    tool_calls: int = 0
+    tools_succeeded: int = 0
     # #52: paths the reply claims it wrote but that the turn never touched.
     unbacked_claims: list[str] = field(default_factory=list)
 
@@ -86,13 +91,22 @@ def run_agent_loop(
     final_visible = ""
     current_thinking: list[str] = []
     last_raw = ""
-    last_tool_output = ""
+    last_tool_signature: tuple[str, str] | None = None
     action_taken = False
     turn = 0
+    llm_calls = 0
+    tool_calls = 0
+    tools_succeeded = 0
+    last_turn_had_tools = False
+    cancelled = False
+    incomplete = False
+    repeated = False
+    rescued = False
 
     while turn < max_turns:
         # 0. External stop signal (#76): halt before spending another turn.
         if should_stop is not None and should_stop():
+            cancelled = True
             if log:
                 log("agent loop halted by the kill switch")
             break
@@ -123,6 +137,7 @@ def run_agent_loop(
         raw_reply = chat_stream(
             work, llm_cfg, on_token=on_visible, status=stream_status
         )
+        llm_calls += 1
         last_raw = raw_reply
 
         if raw_reply.startswith("[ERROR]"):
@@ -154,6 +169,7 @@ def run_agent_loop(
         # #127: a stream without [DONE] may be cut off mid-thought or mid-argument.
         # Keep its text for the transcript, but never start side effects from it.
         if stream_status.get("complete") is False:
+            incomplete = True
             if log:
                 log("incomplete stream (no [DONE]); tools not executed")
             break
@@ -170,8 +186,16 @@ def run_agent_loop(
             executable, memory_root, code_root, allowed_tools=allowed_tools
         )
         if not tool_results:
+            last_turn_had_tools = False
             break
         action_taken = True
+        last_turn_had_tools = True
+        tool_calls += len(tool_results)
+        tools_succeeded += sum(
+            1
+            for r in tool_results
+            if "[ERROR]" not in r and "[DENY]" not in r
+        )
 
         tool_output = "\n".join(tool_results)
         if on_tool_result is not None:
@@ -179,14 +203,16 @@ def run_agent_loop(
         else:
             print(f"\n[tool] {tool_output}", flush=True)
 
-        # Guard against a same-error loop: if the tool output is identical to the
-        # previous turn (e.g. an unknown/unparsable tool the model keeps retrying),
-        # stop instead of repeating the same exchange until max_turns.
-        if tool_output == last_tool_output:
+        # Guard against a same-error loop (#130): only an identical *call* with
+        # an identical result is a repetition. Two different writes that both
+        # return "[OK] wrote ..." must both run.
+        signature = (tool_call_text(executable), tool_output)
+        if signature == last_tool_signature:
+            repeated = True
             if log:
-                log("halting loop: repeated identical tool output")
+                log("halting loop: repeated identical tool call and output")
             break
-        last_tool_output = tool_output
+        last_tool_signature = signature
 
         work.append({"role": "user", "content": f"[system] tool results:\n{tool_output}"})
         turn += 1
@@ -195,9 +221,13 @@ def run_agent_loop(
     # repeat guard halts the loop), leaving the caller with nothing to show. Ask once
     # more, explicitly without tools, and use that as the visible answer. A halted
     # loop (#76) skips the rescue: the stop signal means no more LLM calls either.
+    # #130: also rescue when the last turn was a preamble followed by tools.
+    # Its text is not an answer, so a loop that hits the turn limit used to end
+    # with "確認します" as the whole reply.
     if (
-        not final_visible
+        (not final_visible or last_turn_had_tools)
         and not last_raw.startswith("[ERROR]")
+        and not cancelled
         and not (should_stop is not None and should_stop())
     ):
         _status("writing answer")
@@ -211,6 +241,7 @@ def run_agent_loop(
             }
         ]
         raw_final = chat_stream(rescue_history, llm_cfg, on_token=on_visible)
+        llm_calls += 1
         if raw_final and not raw_final.startswith("[ERROR]"):
             _thinking, visible_final = split_thinking(raw_final)
             clean_final = strip_tool_blocks(visible_final).strip()
@@ -218,6 +249,23 @@ def run_agent_loop(
                 final_visible = clean_final
                 work.append({"role": "assistant", "content": clean_final})
                 last_raw = raw_final
+                rescued = True
+
+    # Why the loop stopped (#130).
+    if cancelled:
+        finish_reason = "cancelled"
+    elif not last_raw or last_raw.startswith("[ERROR]"):
+        finish_reason = "error"
+    elif incomplete:
+        finish_reason = "incomplete"
+    elif repeated:
+        finish_reason = "repeated_tool"
+    elif rescued or final_visible and not last_turn_had_tools:
+        finish_reason = "answered"
+    else:
+        finish_reason = "budget_exhausted"
+    if log and finish_reason != "answered":
+        log(f"agent loop finished: {finish_reason} (llm={llm_calls}, tools={tool_calls})")
 
     # Verification (#52): a reply that says it wrote a file must be backed by a file the
     # turn actually touched. Report the mismatch instead of trusting the text — with a
@@ -243,6 +291,10 @@ def run_agent_loop(
         last_raw=last_raw,
         history=work,
         action_taken=action_taken,
-        turns=turn + 1,
+        turns=llm_calls,
+        finish_reason=finish_reason,
+        llm_calls=llm_calls,
+        tool_calls=tool_calls,
+        tools_succeeded=tools_succeeded,
         unbacked_claims=unbacked,
     )
