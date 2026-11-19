@@ -24,6 +24,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from saku import config as saku_config
+from saku.config import LlmConfig
 from saku import guard as output_guard
 from saku.agent_loop import run_agent_loop as _run_agent_loop
 from saku.llm import STOP_TOKENS, chat_stream as _llm_chat_stream
@@ -57,6 +58,23 @@ def switch_llm_profile(profile_name: str) -> str:
 
     _current_llm = llm
     return f"[OK] Switched to profile: {profile_name} (API: {llm.api_url}, Model: {llm.model})"
+
+
+def llm_for_role(role: str) -> LlmConfig:
+    """Resolve the LLM for a task role ("chat" / "background").
+
+    A role profile configured under [llm] wins. When the role is not
+    configured (or names a missing profile), returns _current_llm — the
+    object every caller used before role routing existed — so behaviour
+    is unchanged and SWITCH_PROFILE keeps governing every task whose
+    role is unset (#105).
+    """
+    profile = _cfg.get("llm", {}).get(role, "")
+    if profile:
+        llm = saku_config.load_profile(_cfg, profile)
+        if llm is not None:
+            return llm
+    return _current_llm
 
 
 def meta_append_only() -> bool:
@@ -654,9 +672,10 @@ def chat_stream(messages: list[dict]) -> str:
     Returns the FULL response (including <think> blocks).
     Screen output hides <think>...</think> content.
 
-    Implementation is delegated to the per-call version in saku/llm.py (settings from _current_llm).
+    Implementation is delegated to the per-call version in saku/llm.py
+    (settings from the "chat" role, #105).
     """
-    return _llm_chat_stream(messages, _current_llm)
+    return _llm_chat_stream(messages, llm_for_role("chat"))
 
 
 # ── Journal ─────────────────────────────────────────────
@@ -766,7 +785,7 @@ def main():
         print("SAKU> ", end="", flush=True)
         result = _run_agent_loop(
             history,
-            _current_llm,
+            llm_for_role("chat"),
             context_config,
             MEMORY_ROOT,
             CODE_ROOT,

@@ -267,7 +267,7 @@ content: 一行で簡潔に（日付は書かない。日付は自動で付与�
 
     result = run_agent_loop(
         history,
-        agent._current_llm,
+        agent.llm_for_role("background"),
         agent.context_config,
         agent.MEMORY_ROOT,
         agent.CODE_ROOT,

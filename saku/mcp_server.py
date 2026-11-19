@@ -308,7 +308,7 @@ def main() -> None:
     talk_engine = None
     if saku_config.load_talk_config(cfg).callers:
         memory_root = saku_config.resolve_memory_root(cfg, base)
-        llm_cfg = saku_config.load_active_llm(cfg)
+        llm_cfg = saku_config.load_llm_for_role(cfg, "chat")
         talk_engine = talk_mod.TalkEngine(
             cfg, memory_root, llm_cfg=llm_cfg, reserved_tokens=(token,)
         )

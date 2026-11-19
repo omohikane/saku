@@ -368,6 +368,7 @@ def run_agent_loop(
     inbox_mode: bool = False,
     log_action: bool = True,
     autonomous: bool = False,
+    role: str = "",
 ) -> tuple[bool, str]:
     """Run Saku on a specific prompt, execute tools, and log results. Returns (success, visible_output).
 
@@ -380,6 +381,10 @@ def run_agent_loop(
     and halts it at the next turn boundary if the switch engages mid-run. Chat
     replies leave it False — they are the Owner's own conversation, not
     autonomous operation, and the switch does not gate them.
+
+    ``role`` selects the model routing role (#105): "chat" for conversation
+    with the Owner, "background" for autonomous/background work. An empty
+    role uses the current LLM exactly as before role routing existed.
     """
     if autonomous and killswitch_stopped():
         logger.info("[%s] skipped: kill switch engaged", log_action_name)
@@ -403,7 +408,7 @@ def run_agent_loop(
 
     result = _run_agent_loop(
         history,
-        agent._current_llm,
+        agent.llm_for_role(role) if role else agent._current_llm,
         agent.context_config,
         agent.MEMORY_ROOT,
         agent.CODE_ROOT,
@@ -498,7 +503,8 @@ Ownerのメッセージ:
 """
 
     _, saku_reply = run_agent_loop(
-        prompt, "chat返信", extra_history=context_history, light=True, log_action=False
+        prompt, "chat返信", extra_history=context_history, light=True, log_action=False,
+        role="chat",
     )
 
     if not saku_reply:
@@ -625,7 +631,8 @@ def saku_self_initiate(reason: str) -> None:
 """
 
     _, saku_msg = run_agent_loop(
-        prompt, f"自発的発話: {reason}", extra_history=chat_history, autonomous=True
+        prompt, f"自発的発話: {reason}", extra_history=chat_history, autonomous=True,
+        role="chat",
     )
     if not saku_msg:
         return
@@ -880,7 +887,7 @@ def check_scheduled_tasks() -> None:
         if due <= now:
             task = it.get("task", "")
             print(f"[*] Scheduled task due: {when_str} -> {task[:50]}")
-            success, _ = run_agent_loop(task, f"scheduled:{it.get('id','')}", autonomous=True)
+            success, _ = run_agent_loop(task, f"scheduled:{it.get('id','')}", autonomous=True, role="background")
             it["status"] = "done" if success else "pending"
             it["executed"] = now.strftime("%Y-%m-%d %H:%M")
             updated = True
@@ -951,7 +958,7 @@ def archive_chat() -> None:
 
 （注: journal/ への書き込みは制限されています。principles/ や meta.md を使用してください）
 """
-    ok, visible = run_agent_loop(prompt, f"チャットアーカイブ ({now_str})", extra_history=chat_history)
+    ok, visible = run_agent_loop(prompt, f"チャットアーカイブ ({now_str})", extra_history=chat_history, role="background")
 
     # Verify the summary actually landed instead of assuming it did (#48). The raw
     # log is already safe, so chat.md may be reset either way — but a silent failure
@@ -1077,7 +1084,7 @@ def check_inbox_and_process() -> None:
             file_content = agent.load_file(p)
             prompt = build_inbox_prompt(rel_inbox_path, file_content)
             before = _snapshot_markdown(watched)
-            success, _ = run_agent_loop(prompt, f"インボックス処理: {p.name}", inbox_mode=True, autonomous=True)
+            success, _ = run_agent_loop(prompt, f"インボックス処理: {p.name}", inbox_mode=True, autonomous=True, role="background")
             if success:
                 # Provenance check (#79): files this run wrote should record
                 # the document they were distilled from. Warn, never mutate.
@@ -1149,7 +1156,7 @@ def check_autonomous_tick() -> None:
 
 ※全て任意です。やることがなければ迷わず「[NO_ACTION]」を出力してください。無理にタスクを作らないでください。
 """
-    run_agent_loop(prompt, "定期自律アクション", autonomous=True)
+    run_agent_loop(prompt, "定期自律アクション", autonomous=True, role="background")
 
 # ── Main ─────────────────────────────────────────────────
 def _acquire_lock() -> bool:

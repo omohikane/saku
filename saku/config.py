@@ -179,6 +179,22 @@ def load_active_llm(cfg: dict) -> LlmConfig:
     )
 
 
+def load_llm_for_role(cfg: dict, role: str) -> LlmConfig:
+    """Resolve the LLM for a task role (e.g. "chat", "background").
+
+    ``[llm] <role>`` names a profile; when set and the profile exists it
+    wins over active_profile. When the role is unset (or names a missing
+    profile) this is exactly load_active_llm() — role routing is opt-in
+    and changes nothing until a role key is added to the config (#105).
+    """
+    profile = cfg.get("llm", {}).get(role, "")
+    if profile:
+        llm = load_profile(cfg, profile)
+        if llm is not None:
+            return llm
+    return load_active_llm(cfg)
+
+
 def load_llm_instance(cfg: dict, name: str = "main") -> LlmConfig:
     """Resolve a named instance from [llm.instances].
 
