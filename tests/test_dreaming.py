@@ -174,6 +174,58 @@ def test_load_dreaming_config_defaults():
     assert defaults.ttl_days == 90
 
 
+def test_extract_items_from_text_parses_memory_blocks():
+    """#68: the shared extractor reads the same [MEMORY] shape as dreaming."""
+    from types import SimpleNamespace
+
+    raw = """[MEMORY]
+category: 好み・傾向
+content: 朝は静かな環境を好む
+[/MEMORY]
+[MEMORY]
+category: 存在しないカテゴリ
+content: これは捨てる
+[/MEMORY]"""
+
+    captured = {}
+
+    def _fake_loop(history, llm_cfg, cfg, mem, code, **kw):
+        captured["prompt"] = history[-1]["content"]
+        captured["kwargs"] = kw
+        return SimpleNamespace(last_raw=raw, visible="", thinking="")
+
+    originals = (dreaming.run_agent_loop, dreaming.agent.build_system_prompt)
+    dreaming.run_agent_loop = _fake_loop
+    dreaming.agent.build_system_prompt = lambda: "system"
+    try:
+        items = dreaming.extract_items_from_text(
+            "朝の作業ログ", date="2026-11-18", kind="daily", llm_cfg=object()
+        )
+    finally:
+        dreaming.run_agent_loop, dreaming.agent.build_system_prompt = originals
+
+    assert items == [("好み・傾向", "朝は静かな環境を好む")]
+    assert "デイリーノート" in captured["prompt"]
+    assert "2026-11-18" in captured["prompt"]
+    # Machine-read output must not be streamed to stdout.
+    assert callable(captured["kwargs"].get("on_visible"))
+
+
+def test_extract_items_from_text_returns_empty_on_llm_error():
+    from types import SimpleNamespace
+
+    originals = (dreaming.run_agent_loop, dreaming.agent.build_system_prompt)
+    dreaming.run_agent_loop = lambda *a, **k: SimpleNamespace(
+        last_raw="[ERROR] empty reply", visible="", thinking=""
+    )
+    dreaming.agent.build_system_prompt = lambda: "system"
+    try:
+        items = dreaming.extract_items_from_text("x", date="2026-11-18", llm_cfg=object())
+    finally:
+        dreaming.run_agent_loop, dreaming.agent.build_system_prompt = originals
+    assert items == []
+
+
 def run_tests():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in tests:

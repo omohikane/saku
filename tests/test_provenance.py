@@ -41,6 +41,13 @@ def test_make_ref_and_sanitize():
     assert provenance.sanitize_ref("***") == "unknown"
 
 
+def test_daily_is_a_known_kind():
+    """#68: daily notes are a provenance origin like journal/monologue."""
+    assert provenance.KIND_DAILY == "daily"
+    assert provenance.KIND_DAILY in provenance.KNOWN_KINDS
+    assert provenance.make_ref(provenance.KIND_DAILY, "2026-11-18") == "daily/2026-11-18"
+
+
 def test_join_split_union_refs():
     assert provenance.join_refs(["journal/2026-08-30", "monologue/2026-08-30"]) == (
         "journal/2026-08-30,monologue/2026-08-30"
