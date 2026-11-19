@@ -230,6 +230,9 @@ reason: 20文字以内の理由
         agent.MEMORY_ROOT,
         agent.CODE_ROOT,
         max_turns=1,
+        # The classification is machine-read: streaming it would print raw
+        # [CLASSIFY] blocks before the CLI's own proposal table.
+        on_visible=lambda _t: None,
     )
     if not result.last_raw or result.last_raw.startswith("[ERROR]"):
         raise RuntimeError(result.last_raw or "empty reply from the LLM")

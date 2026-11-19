@@ -39,8 +39,10 @@ def _paths(tmp: Path):
     return cfg, memory, sort_mod.resolve_paths(cfg, tmp, memory)
 
 
-def _fake_loop(raw: str):
+def _fake_loop(raw: str, seen: dict | None = None):
     def _run(*_a, **_k):
+        if seen is not None:
+            seen.update(_k)
         return SimpleNamespace(last_raw=raw, visible="", thinking="")
 
     return _run
@@ -92,9 +94,10 @@ confidence: 0.8
 reason: 不明
 [/CLASSIFY]"""
 
+        seen: dict = {}
         original_loop = sort_mod.run_agent_loop
         original_prompt = sort_mod.agent.build_system_prompt
-        sort_mod.run_agent_loop = _fake_loop(raw)
+        sort_mod.run_agent_loop = _fake_loop(raw, seen)
         sort_mod.agent.build_system_prompt = lambda: "system"
         try:
             items = sort_mod.classify(
@@ -103,6 +106,10 @@ reason: 不明
         finally:
             sort_mod.run_agent_loop = original_loop
             sort_mod.agent.build_system_prompt = original_prompt
+
+        # The classification is read, not watched: raw [CLASSIFY] blocks must not
+        # be streamed to stdout before the CLI's own table.
+        assert callable(seen.get("on_visible"))
 
         by_name = {i["file"]: i for i in items}
         assert by_name["a.md"]["folder"] == "IT"
