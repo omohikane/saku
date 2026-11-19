@@ -134,17 +134,59 @@ def _load_tool(name_lower: str, tool_file: Path):
     return module
 
 
+def _mcp_arguments(schema: dict, args_str: str, body: str) -> dict:
+    """Build typed arguments for an MCP call (#132).
+
+    A JSON body is authoritative (objects directly; a bare value fills the
+    schema's single property). Otherwise ``key="value"`` kwargs are used and
+    coerced to the schema's types.
+    """
+    import json as _json
+
+    from .mcp import coerce_arguments
+
+    text = (body or "").strip()
+    if text.startswith("{") or text.startswith("["):
+        data = _json.loads(text)
+        if isinstance(data, dict):
+            return data
+        props = list((schema or {}).get("properties") or {})
+        if len(props) == 1:
+            return {props[0]: data}
+        raise ValueError("JSON body must be an object (or the schema must have one property)")
+    return coerce_arguments(schema, dict(re.findall(r'(\w+)="(.*?)"', args_str)))
+
+
 def _run_mcp_tool(name: str, args_str: str, body: str) -> str | None:
     """Route a tool call to an external MCP server. Returns None if not an MCP tool."""
     try:
-        from .mcp import call_tool, get_tool_registry
+        from .mcp import McpServer, call_tool, get_tool_registry, validate_arguments
 
         registry = get_tool_registry()
-        server = registry.get(name) or registry.get(name.lower())
-        if server is None:
+        binding_key = name
+        binding = registry.get(name)
+        if binding is None:
+            # Module-style calls are uppercase; a unique case-insensitive match
+            # is accepted, but an ambiguous one is refused rather than guessed.
+            matches = {id(b): (k, b) for k, b in registry.items() if k.lower() == name.lower()}
+            if len(matches) > 1:
+                return f"[{name}] [ERROR] ambiguous MCP tool; call it as server/name"
+            if matches:
+                binding_key, binding = next(iter(matches.values()))
+        if binding is None:
             return None
-        args = dict(re.findall(r'(\w+)="(.*?)"', args_str))
-        result = call_tool(server, name.lower(), args)
+        # Older callers register a bare McpServer; new ones a binding with the
+        # tool's original name and input schema.
+        if isinstance(binding, McpServer):
+            server, tool_name, schema = binding, binding_key, {}
+        else:
+            server, tool_name, schema = binding.server, binding.name, binding.input_schema
+
+        args = _mcp_arguments(schema, args_str, body)
+        problem = validate_arguments(schema, args)
+        if problem:
+            return f"[{name}] [ERROR] invalid arguments: {problem}"
+        result = call_tool(server, tool_name, args)
         return f"[{name}] {result}"
     except Exception as e:
         return f"[{name}] [ERROR] MCP call failed: {e}"
@@ -223,9 +265,9 @@ def list_tool_calls(raw: str) -> list[str]:
     """
     names: list[str] = []
     raw = normalize_single_bracket_calls(raw)
-    for m in re.finditer(r"\[\[([A-Z_]+)\s*(.*?)\]\]", raw):
+    for m in re.finditer(r"\[\[([A-Za-z0-9_./:-]+)\s*(.*?)\]\]", raw):
         name = m.group(1)
-        if name == "END" or name in names:
+        if name.upper() == "END" or name in names:
             continue
         names.append(name)
     return names
@@ -250,11 +292,11 @@ def exec_tools(
     raw = _normalize_alternative_calls(raw, memory_root, code_root)
     results: list[str] = []
 
-    start_pattern = r"\[\[([A-Z_]+)\s*(.*?)\]\]"
+    start_pattern = r"\[\[([A-Za-z0-9_./:-]+)\s*(.*?)\]\]"
     starts = list(re.finditer(start_pattern, raw))
     parsed_ranges = []
 
-    pattern = r"\[\[(\w+)\s*(.*?)\]\]\s*\n(.*?)\n?\[\[END\]\]"
+    pattern = r"\[\[([A-Za-z0-9_./:-]+)\s*(.*?)\]\]\s*\n(.*?)\n?\[\[END\]\]"
     for m in re.finditer(pattern, raw, re.DOTALL):
         name, args_str, body = m.group(1), m.group(2), m.group(3)
         start_idx, end_idx = m.start(), m.end()

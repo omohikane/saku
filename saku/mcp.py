@@ -12,6 +12,7 @@ imported lazily so the core runs without it.
 """
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +27,24 @@ class McpServer:
     cwd: str | None = None
     headers: dict = field(default_factory=dict)
     env: dict = field(default_factory=dict)
+
+
+@dataclass
+class McpToolBinding:
+    """A discovered MCP tool: which server, its original name, its schema.
+
+    The registry used to map ``tool name -> server``. Bare names collide across
+    servers (last one won) and the schema was unavailable at dispatch time, so
+    typed arguments could not be validated (#132).
+    """
+
+    server: McpServer
+    name: str
+    input_schema: dict = field(default_factory=dict)
+
+    @property
+    def qualified(self) -> str:
+        return f"{self.server.name}/{self.name}"
 
 
 def load_servers(cfg: dict) -> list[McpServer]:
@@ -133,20 +152,92 @@ def discover_tool_descriptions(servers: list[McpServer]) -> str:
             lines.append(f"- [{server.name}] (unreachable: {e})")
             continue
         for t in tools:
-            lines.append(f"- [{server.name}] {describe_tool(t)}")
+            # Advertise the qualified form: a bare name is ambiguous when two
+            # servers expose the same tool (#132), and dispatch accepts both.
+            line = describe_tool(t).lstrip("- ")
+            lines.append(f"- {server.name}/{line}")
     return "\n".join(lines)
 
 
-def build_tool_registry(servers: list[McpServer]) -> dict[str, McpServer]:
-    """Map MCP tool names to their server (for transport dispatch)."""
-    registry: dict[str, McpServer] = {}
+def build_tool_registry(servers: list[McpServer]) -> dict[str, McpToolBinding]:
+    """Map MCP tools to bindings, addressable as ``server/name`` or bare name.
+
+    ``server/name`` is always present and collision-free. A bare name is added
+    only when it is still unambiguous, so an existing ``[[ADD]]`` keeps working
+    while a second server with the same tool can only be reached qualified.
+    """
+    registry: dict[str, McpToolBinding] = {}
     for server in servers:
         try:
             for t in list_tools(server):
-                registry[t.name] = server
+                schema = getattr(t, "input_schema", None) or getattr(t, "inputSchema", None) or {}
+                binding = McpToolBinding(server=server, name=t.name, input_schema=schema)
+                registry[binding.qualified] = binding
+                registry.setdefault(t.name, binding)
         except Exception as e:
             print(f"[mcp] failed to list tools from {server.name}: {e}")
     return registry
+
+
+_JSON_TYPES = {
+    "string": str,
+    "number": (int, float),
+    "integer": int,
+    "boolean": bool,
+    "array": list,
+    "object": dict,
+}
+
+
+def coerce_arguments(schema: dict, arguments: dict) -> dict:
+    """Coerce string kwargs to the schema's types (``a="1"`` -> integer 1)."""
+    props = (schema or {}).get("properties") or {}
+    out = dict(arguments)
+    for key, value in list(out.items()):
+        spec = props.get(key) or {}
+        kind = spec.get("type")
+        if not isinstance(value, str):
+            continue
+        try:
+            if kind == "integer":
+                out[key] = int(value)
+            elif kind == "number":
+                out[key] = float(value)
+            elif kind == "boolean":
+                out[key] = value.strip().lower() in ("1", "true", "yes", "on")
+            elif kind in ("array", "object"):
+                out[key] = json.loads(value)
+        except (ValueError, json.JSONDecodeError):
+            pass  # validate_arguments reports the mismatch with a clear message
+    return out
+
+
+def validate_arguments(schema: dict, arguments: dict) -> str | None:
+    """Check typed arguments against the tool's input schema before calling."""
+    if not isinstance(schema, dict) or not schema:
+        return None
+    if not isinstance(arguments, dict):
+        return "arguments must be a JSON object"
+    props = schema.get("properties") or {}
+    for key in schema.get("required") or []:
+        if key not in arguments:
+            return f"missing required argument: {key}"
+    for key, value in arguments.items():
+        spec = props.get(key)
+        if not spec:
+            if schema.get("additionalProperties") is False:
+                return f"unknown argument: {key}"
+            continue
+        kind = spec.get("type")
+        expected = _JSON_TYPES.get(kind)
+        if expected is None:
+            continue
+        # bool is an int subclass; a boolean where a number is expected is a bug.
+        if kind in ("number", "integer") and isinstance(value, bool):
+            return f"argument {key} must be {kind}, not boolean"
+        if not isinstance(value, expected):
+            return f"argument {key} must be {kind}"
+    return None
 
 
 _registry_cache: dict[str, McpServer] | None = None
@@ -189,8 +280,8 @@ def _plugin_data_dir(plugins_root: Path, name: str) -> Path:
     return plugins_root / ".data" / name
 
 
-def get_tool_registry() -> dict[str, McpServer]:
-    """Return the cached MCP tool registry (tool_name -> server)."""
+def get_tool_registry() -> dict[str, McpToolBinding]:
+    """Return the cached MCP tool registry (``server/name`` / bare -> binding)."""
     global _registry_cache
     if _registry_cache is None:
         _registry_cache = build_tool_registry(_load())

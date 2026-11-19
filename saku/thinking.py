@@ -4,7 +4,13 @@ import re
 
 from .transport import strip_single_bracket_calls
 
-TOOL_BLOCK_RE = re.compile(r"\[\[[A-Z_]+\s*[^\]]*\]\]\s*\n?.*?\[\[END\]\]", re.DOTALL)
+# Complete blocks may carry an MCP tool's case-sensitive or qualified name
+# (`svc/getState`), so the name class is not uppercase-only here. The unclosed
+# variant below stays uppercase-only on purpose: `[[some link]]` prose must not
+# be stripped, and an unclosed block is never executed anyway (#123).
+TOOL_BLOCK_RE = re.compile(
+    r"\[\[[A-Za-z0-9_./:-]+\s*[^\]]*\]\]\s*\n?.*?\[\[END\]\]", re.DOTALL
+)
 UNCLOSED_TOOL_START_RE = re.compile(r"\[\[[A-Z_]+\s*[^\]]*\]\]", re.MULTILINE)
 
 # Prompt scaffolding the model sometimes echoes into its reply (#51): "[system] ..."
