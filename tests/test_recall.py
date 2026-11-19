@@ -139,6 +139,38 @@ def test_iter_memory_items_reports_status():
         assert items[1]["text"].startswith("過去の設定はBでした")
 
 
+def test_hiragana_only_query_finds_a_memory():
+    """#134: kana-only terms were dropped, so everyday questions recalled nothing."""
+    import tempfile
+    from pathlib import Path
+
+    assert recall.terms("いつものこうせいをおぼえてる？")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "MEMORY.md").write_text(
+            "# MEMORY\n\n## 好み・傾向\n"
+            "- 2026-01-01: 朝のこうせいは静かにすると集中できる <!-- s:3 last:2026-11-01 -->\n",
+            encoding="utf-8",
+        )
+        block = recall.recall(root, "こうせいをおぼえてる？")
+        assert "こうせい" in block
+
+
+def test_particle_noise_does_not_pull_in_unrelated_memory():
+    """#134: keeping kana terms must not turn particles into a match-everything query."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "MEMORY.md").write_text(
+            "# MEMORY\n\n## 永続的な事実\n"
+            "- 2026-01-01: 猫はこたつで丸くなって寝る <!-- s:3 last:2026-11-01 -->\n",
+            encoding="utf-8",
+        )
+        assert recall.recall(root, "これはそれでどうするの？") == ""
+
+
 def test_load_recall_config_defaults():
     d = cfg_mod.load_recall_config({})
     assert d.enabled is True
