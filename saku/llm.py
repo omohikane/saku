@@ -41,7 +41,7 @@ def chat_stream(
         # reasoning_content unless reasoning is disabled; "none" gives plain content.
         payload["reasoning_effort"] = llm_cfg.reasoning_effort
 
-    headers = {}
+    headers = dict(llm_cfg.headers or {})
     if llm_cfg.api_key:
         headers["Authorization"] = f"Bearer {llm_cfg.api_key}"
 

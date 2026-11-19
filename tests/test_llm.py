@@ -114,6 +114,35 @@ def test_load_profile_expands_api_key_from_env():
         os.environ.pop("SAKU_TEST_KEY", None)
 
 
+def test_profile_headers_are_sent():
+    cfg = {
+        "llm": {
+            "profiles": {
+                "opencode": {
+                    "api_url": "http://x/v1/chat/completions",
+                    "headers": {"x-opencode-session": "saku"},
+                }
+            }
+        }
+    }
+    prof = cfg_mod.load_profile(cfg, "opencode")
+    assert prof.headers == {"x-opencode-session": "saku"}
+
+    captured = {}
+
+    def _fake_post(url, json=None, headers=None, stream=None, timeout=None):
+        captured["headers"] = headers
+        return _FakeResponse()
+
+    orig = llm_mod.requests.post
+    llm_mod.requests.post = _fake_post
+    try:
+        llm_mod.chat_stream([{"role": "user", "content": "hi"}], prof)
+    finally:
+        llm_mod.requests.post = orig
+    assert captured["headers"]["x-opencode-session"] == "saku"
+
+
 def run_tests():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in tests:

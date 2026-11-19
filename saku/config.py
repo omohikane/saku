@@ -125,6 +125,7 @@ class LlmConfig:
     working_budget_tokens: int = 0  # 0 = unknown (the agent's working budget)
     reasoning_effort: str = ""  # "" = omit; e.g. "none" for reasoning models (Strata)
     stop_tokens: list[str] | None = None  # None = use llm.STOP_TOKENS (engines may cap the count)
+    headers: dict[str, str] = field(default_factory=dict)  # extra request headers (gateway routing)
 
     @property
     def is_configured(self) -> bool:
@@ -158,6 +159,7 @@ def load_profile(cfg: dict, name: str) -> "LlmConfig | None":
         working_budget_tokens=prof.get("working_budget_tokens", 0),
         reasoning_effort=prof.get("reasoning_effort", ""),
         stop_tokens=prof.get("stop_tokens"),
+        headers=dict(prof.get("headers", {}) or {}),
     )
 
 

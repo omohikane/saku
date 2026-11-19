@@ -28,6 +28,16 @@ model = ""
 # プロファイルで上書きする（未指定なら llm.STOP_TOKENS の既定リスト）:
 # stop_tokens = ["Owner:", "Owner>", "**Owner**"]
 
+# ゲートウェイが追加ヘッダを要求する場合（例: OpenCode Console は x-opencode-session 必須）。
+# プロファイル単位で付与でき、Authorization と併存します。
+# [llm.profiles.opencode]
+# api_url = "https://opencode.ai/inference/go/openai/v1/chat/completions"
+# api_key = "${OPENCODE_API_KEY}"
+# model = "glm-5.3"
+# reasoning_effort = "none"        # GLM 5.3 は切らないと content が空のまま
+# stop_tokens = ["Owner:", "Owner>", "**Owner**", "\n**Owner**"]  # このルートは4件まで
+# headers = { "x-opencode-session" = "saku-console" }
+
 # LLM instances - 複数ローカルサーバを名前付きで使い分ける（Phase A: 定義のみ / Phase C以降で本格利用）
 # インスタンスはプロファイルを参照し、必要に応じて上書きできる。
 # [llm.instances.main]
