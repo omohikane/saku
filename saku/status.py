@@ -96,20 +96,25 @@ def killswitch_line(memory_root: Path) -> str:
     return f"kill switch    : {killswitch.describe(flag)}"
 
 
-def _resolve_roots() -> tuple[Path, Path]:
+def _resolve_roots() -> tuple[dict, Path, Path]:
     from saku import config as cfg_mod
 
     cfg, base = cfg_mod.load_config()
     memory_root = cfg_mod.resolve_memory_root(cfg, base)
-    return memory_root, cfg_mod.resolve_wiki_root(cfg, base, memory_root)
+    return cfg, memory_root, cfg_mod.resolve_wiki_root(cfg, base, memory_root)
 
 
 def main(argv: list[str] | None = None) -> int:
-    memory_root, wiki_root = _resolve_roots()
+    from saku import config as cfg_mod
+    from saku import heartbeat
+
+    cfg, memory_root, wiki_root = _resolve_roots()
     print(f"SAKU status ({memory_root})")
     for line in status_lines(memory_root, wiki_root):
         print(f"  {line}")
     print(f"  {killswitch_line(memory_root)}")
+    hb = cfg_mod.load_heartbeat_config(cfg)
+    print(f"  {heartbeat.status_line(memory_root, file=hb.file, max_age=hb.max_age_seconds)}")
     return 0
 
 

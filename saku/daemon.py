@@ -31,6 +31,7 @@ from pathlib import Path
 from saku import core as agent
 from saku import dreaming
 from saku import growth
+from saku import heartbeat as heartbeat_mod
 from saku import killswitch
 from saku import mail as saku_mail
 from saku import provenance
@@ -63,6 +64,14 @@ UI_INBOX = MEMORY_ROOT / "state" / "ui_inbox.json"
 LOCK_FILE = MEMORY_ROOT / "state" / "daemon.lock"
 
 PROACTIVE_CHANNELS = agent.saku_config.load_channels_config(agent._cfg).proactive
+
+# Heartbeat (#75): the daemon writes state/heartbeat.json every loop so an
+# external monitor can tell "quiet" from "dead". Resolved once from [heartbeat].
+_hbcfg = agent.saku_config.load_heartbeat_config(agent._cfg)
+HEARTBEAT_ENABLED = _hbcfg.enabled
+HEARTBEAT_FILE = _hbcfg.file
+HEARTBEAT_MAX_AGE = _hbcfg.max_age_seconds
+HEARTBEAT_NOTIFY_ON_GAP = _hbcfg.notify_on_gap
 
 CHAT_POLL_SECONDS = _dcfg.get("chat_poll_seconds", 5)
 INBOX_POLL_SECONDS = _dcfg.get("inbox_poll_seconds", 3600)
@@ -1258,6 +1267,38 @@ def main():
         _release_lock()
 
 
+# ── Heartbeat (#75) ────────────────────────────────────────
+def _beat(interval: int | None = None) -> None:
+    """Record that the daemon loop is alive. Never raises."""
+    if not HEARTBEAT_ENABLED:
+        return
+    try:
+        heartbeat_mod.beat(
+            MEMORY_ROOT, file=HEARTBEAT_FILE, interval=interval, role="daemon"
+        )
+    except OSError as e:
+        logger.warning("[heartbeat] write failed: %s", e)
+
+
+def check_heartbeat_gap() -> str | None:
+    """At startup, report (once) that the previous run was down for a while.
+
+    Must run before the first beat: writing one overwrites the evidence.
+    """
+    if not HEARTBEAT_ENABLED:
+        return None
+    gap = heartbeat_mod.gap_notice(
+        MEMORY_ROOT, file=HEARTBEAT_FILE, max_age=HEARTBEAT_MAX_AGE
+    )
+    if gap:
+        logger.warning("[heartbeat] %s", gap)
+        print(f"│  [!] {gap}")
+        if HEARTBEAT_NOTIFY_ON_GAP:
+            notify_webui(gap)
+    _beat()
+    return gap
+
+
 def _daemon_run():
     interval = int(os.environ.get("SAKU_INTERVAL_SEC", TICK_POLL_SECONDS))
     debug = os.environ.get("SAKU_DEBUG", "").lower() in ("1", "true", "yes")
@@ -1272,6 +1313,10 @@ def _daemon_run():
 
     if not CHAT_FILE.exists():
         reset_chat_file()
+
+    # #75: say once if the previous process was gone for a long time, then
+    # start beating. This must precede the first beat and the startup checks.
+    check_heartbeat_gap()
 
     state = load_chat_state()
 
@@ -1316,6 +1361,7 @@ def _daemon_run():
         try:
             time.sleep(CHAT_POLL_SECONDS)
             now = time.time()
+            _beat(interval)
 
             # 0. Kill switch (#76): notice engage/release edges once. The
             # gates themselves stat the flag at action time; this is only
