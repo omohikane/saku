@@ -217,7 +217,21 @@ auto_initiate_cooldown_seconds = 28800 # SAKU self-initiates every 8 hours
 # enabled = true           # 自動想起を有効にする
 # items = 3                # 注入する記憶の最大件数
 # max_chars = 600          # 注入ブロックの最大文字数
-# sources = ["MEMORY.md", "principles/", "wiki/"]  # 想起元（メモリルート相対）
+# sources = ["MEMORY.md", "principles/", "skills/", "wiki/"]  # 想起元（メモリルート相対）
+
+# [skills] - スキル学習ループ（#104）
+# スケジュールタスクが正常に完了したとき、その手順・前提・検証方法を朔自身の言葉で
+# 蒸留し、skills/ にスキルファイル（SKILL.md 形式の front matter 付き）として保存します。
+# 出典は「> source: task/<日付>-<タスクID>」として #79 の方式で記録されます。
+# 保存されたスキルは想起（[recall] の sources 既定に skills/ を含む）と full プロンプトの
+# Acquired Skills で類似タスクの際に再利用され、改訂・統合は深夜の reflection が担います。
+# 既定は無効: 有効化すると新しい永続ファイルが自動で増え、後続プロンプトの内容が変わる
+# ため、稼働中のインスタンスの挙動を変えないよう明示的に opt-in します（[mail] と同じ方針）。
+# 外部（コミュニティ等）のスキル取り込みは対象外です（サプライチェーンリスクのため）。
+# [skills]
+# learning_enabled = false  # 完了したスケジュールタスクからスキルを学習する
+# max_chars = 3000          # スキルファイル本文の上限文字数
+# max_result_chars = 3000   # 蒸留プロンプトへ渡す完了報告の上限文字数
 
 # [growth] - 週次レビュー（複数日をまたいだ傾向の整理 / #45）
 # 日次の振り返りは1日単位なので、同じ気づきと報告が反復します（#43）。週に1回、

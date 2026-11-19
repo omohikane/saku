@@ -30,7 +30,7 @@ _SKIP_TERMS = {
     "the", "and", "for", "with", "you", "that", "this", "what", "how",
 }
 
-DEFAULT_SOURCES = ["MEMORY.md", "principles/", "wiki/"]
+DEFAULT_SOURCES = ["MEMORY.md", "principles/", "skills/", "wiki/"]
 DEFAULT_ITEMS = 3
 DEFAULT_MAX_CHARS = 600
 MAX_TERMS = 40
