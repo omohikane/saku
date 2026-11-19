@@ -67,6 +67,40 @@ def test_continuity_respects_budget():
         assert 0 < len(block) <= 120
 
 
+def test_sourced_entries_reach_continuity():
+    """#125: the writer's own format must be readable by the continuity parser."""
+    from saku import dreaming
+
+    plain = dreaming.format_entry("2026-08-03", "静かな朝が好き", 5, "2026-11-18")
+    sourced = dreaming.format_entry(
+        "2026-08-03", "静かな朝が好き", 5, "2026-11-18", src="journal/2026-08-03"
+    )
+    assert "src:" in sourced
+    assert persona._memory_items(plain, min_score=3, limit=8) == ["静かな朝が好き"]
+    assert persona._memory_items(sourced, min_score=3, limit=8) == ["静かな朝が好き"]
+
+
+def test_unknown_or_reordered_metadata_keeps_the_body():
+    """A future metadata field must not silently drop a durable memory."""
+    from saku import dreaming
+
+    line = "- 2026-08-03: 静かな朝が好き <!-- src:journal/2026-08-03 s:5 last:2026-11-18 conf:0.9 -->"
+    parsed = dreaming.parse_entry(line)
+    assert parsed is not None
+    assert parsed["text"] == "静かな朝が好き"
+    assert parsed["score"] == 5
+    assert parsed["src"] == "journal/2026-08-03"
+    assert persona._memory_items(line, min_score=3, limit=8) == ["静かな朝が好き"]
+
+
+def test_legacy_entry_parses_but_stays_below_the_score_floor():
+    from saku import dreaming
+
+    parsed = dreaming.parse_entry("- 2026-08-03: 古い記憶")
+    assert parsed is not None and parsed["score"] is None and parsed["src"] is None
+    assert persona._memory_items("- 2026-08-03: 古い記憶", min_score=3, limit=8) == []
+
+
 def test_continuity_can_be_disabled():
     with tempfile.TemporaryDirectory() as tmp:
         cfg = persona.load_persona_config({"persona": {"continuity_enabled": False}})

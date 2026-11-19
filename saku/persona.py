@@ -31,11 +31,6 @@ STYLE_CONTRACT = """# 会話の作法
 - 質問は最大1つ。相手の話を受けてから聞く。
 - 相手を「Owner」と呼ばず、会話の相手として扱う。"""
 
-_MEMORY_ENTRY_RE = re.compile(
-    r"^-\s*(?P<text>.*?)\s*<!--\s*s:(?P<score>\d+)(?:\s+last:(?P<last>[\d-]+))?\s*-->\s*$"
-)
-
-
 @dataclass
 class PersonaConfig:
     continuity_enabled: bool = True
@@ -85,16 +80,23 @@ def _section_items(text: str, heading: str, limit: int) -> list[str]:
 
 
 def _memory_items(text: str, min_score: int, limit: int) -> list[str]:
-    """Highest-scored, most recently mentioned durable memories."""
+    """Highest-scored, most recently mentioned durable memories.
+
+    Parsing goes through ``dreaming.parse_entry`` — the same reader that
+    produces the lines — so a new metadata field (#79's ``src:`` was the first)
+    can never make durable memories disappear from the continuity block (#125).
+    """
+    from saku import dreaming
+
     scored: list[tuple[int, str, str]] = []
     for line in text.splitlines():
-        m = _MEMORY_ENTRY_RE.match(line.strip())
-        if not m:
+        parsed = dreaming.parse_entry(line)
+        if not parsed:
             continue
-        score = int(m.group("score"))
+        score = parsed["score"] if parsed["score"] is not None else 0
         if score < min_score:
             continue
-        scored.append((score, m.group("last") or "", m.group("text").strip()))
+        scored.append((score, parsed["last"] or "", parsed["text"]))
     scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
     return [item for _score, _last, item in scored[:limit]]
 
