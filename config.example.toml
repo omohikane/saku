@@ -281,6 +281,16 @@ auto_initiate_cooldown_seconds = 28800 # SAKU self-initiates every 8 hours
 # token_file = ""           # "" = $XDG_CONFIG_HOME/saku/ui.token（0600）
 # cookie_name = "saku_auth"
 
+# [selfcheck] - 自己検証ループ（#102）
+# 夜の reflection の前に、その日の完了報告（「〜しました」）を証拠と照合する。
+# ファイル書き込みは実在、コミット言及は git の実物と突き合わせ、証拠のない
+# 報告は「未確認」として journal に残す。同じ種別の未確認が複数日に及ぶと
+# 「再発」として教訓化（principles）を促す。既定で有効。
+# [selfcheck]
+# enabled = true
+# recurrence_threshold = 2   # 未確認が何日分たまったら「再発」とするか
+# ledger_file = "selfcheck/ledger.json"  # memory からの相対（再発カウンタの置き場）
+
 # [ops] - ホーム運用の承認境界（Phase E で実装。定義のみ）
 # 自動実行OKの操作（読み取り系）と、承認必須の操作（破壊的）を分離する
 # [ops]

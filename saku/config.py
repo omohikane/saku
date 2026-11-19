@@ -583,6 +583,47 @@ def resolve_killswitch_flag(cfg: dict, memory_root: Path) -> Path:
     return (memory_root / p).resolve()
 
 
+# ── Self-Check Config (#102) ────────────────────────────
+# The self-verification loop audits SAKU's own completion claims during the
+# nightly reflection: claims are extracted from the day's journal/monologue
+# and checked against evidence (files on disk, commits in git). Unbacked
+# claims are written back into the journal as 未確認 instead of passing as
+# fact, and a small ledger counts flagged claims per kind across days so a
+# recurring kind can be promoted to a principle.
+#
+# Enabled by default, unlike [mail] / [git]: the audit sends nothing and
+# moves nothing -- it only reads SAKU's own records and appends to SAKU's
+# own journal, inside a reflection run that already rewrites memory.
+@dataclass
+class SelfCheckConfig:
+    enabled: bool = True
+    recurrence_threshold: int = 2  # distinct days with flagged claims of one kind = recurring
+    ledger_file: str = "selfcheck/ledger.json"  # relative to the memory root
+
+
+def load_selfcheck_config(cfg: dict) -> SelfCheckConfig:
+    s = cfg.get("selfcheck", {})
+    return SelfCheckConfig(
+        enabled=s.get("enabled", True),
+        recurrence_threshold=max(1, int(s.get("recurrence_threshold", 2))),
+        ledger_file=expand_env(s.get("ledger_file", "selfcheck/ledger.json")),
+    )
+
+
+def resolve_selfcheck_ledger(cfg: dict, memory_root: Path) -> Path:
+    """Resolve the self-check ledger path (``[selfcheck] ledger_file``).
+
+    Relative paths are resolved against the memory root so the ledger lives
+    inside the synced memory and survives across machines; absolute paths
+    pass through.
+    """
+    rel = expand_env(cfg.get("selfcheck", {}).get("ledger_file", "selfcheck/ledger.json"))
+    p = Path(rel)
+    if p.is_absolute():
+        return p.resolve()
+    return (memory_root / p).resolve()
+
+
 # ── Web UI Config ───────────────────────────────────────
 # The UI was written for localhost. On a server it is reachable over a VPN, so
 # authentication must be a first-class setting rather than an assumption.
