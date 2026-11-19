@@ -135,6 +135,147 @@ def test_chat_sse_status_and_page():
         _stop(server)
 
 
+def _post_chat(server, message, client_id, out, index):
+    def run():
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{server._test_port}/api/chat",
+            data=json.dumps({"message": message, "client_id": client_id}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            out[index] = r.read().decode("utf-8")
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return t
+
+
+def test_concurrent_requests_for_one_session_are_serialized():
+    """#131: the slower turn used to overwrite the faster one's exchange."""
+    from saku.agent_loop import LoopResult
+
+    server = _start_server()
+    events = []
+    snapshots = []
+    originals = (ui.run_agent_loop, ui.agent.build_light_system_prompt,
+                 ui.agent.build_recall_message, ui.agent.save_journal)
+    ui.agent.save_journal = lambda *a, **k: None
+    ui.agent.build_recall_message = lambda m: None
+    ui.agent.build_light_system_prompt = lambda: "system"
+
+    def fake_loop(history, llm_cfg, ctx, mem, code, **kw):
+        users = [m["content"] for m in history if m["role"] == "user"]
+        snapshots.append(users)
+        events.append("start")
+        time.sleep(0.3)
+        events.append("end")
+        return LoopResult(
+            visible="ok", thinking="", last_raw="ok",
+            history=list(history) + [{"role": "assistant", "content": "ok"}],
+            action_taken=True,
+        )
+
+    ui.run_agent_loop = fake_loop
+    out = {}
+    try:
+        t1 = _post_chat(server, "A", "t-concurrent", out, 1)
+        time.sleep(0.05)
+        t2 = _post_chat(server, "B", "t-concurrent", out, 2)
+        t1.join(10)
+        t2.join(10)
+    finally:
+        ui.run_agent_loop, ui.agent.build_light_system_prompt, \
+            ui.agent.build_recall_message, ui.agent.save_journal = originals
+        ui._sessions.pop("t-concurrent", None)
+        ui._session_locks.pop("t-concurrent", None)
+        _stop(server)
+
+    assert events == ["start", "end", "start", "end"], events
+    # The second turn saw the first turn's history instead of a stale copy.
+    assert snapshots[1] == ["A", "B"], snapshots
+
+
+def test_requests_for_different_sessions_run_in_parallel():
+    """The session lock must not serialize the whole server."""
+    from saku.agent_loop import LoopResult
+
+    server = _start_server()
+    barrier = threading.Barrier(2, timeout=3)
+    reached = []
+    originals = (ui.run_agent_loop, ui.agent.build_light_system_prompt,
+                 ui.agent.build_recall_message, ui.agent.save_journal)
+    ui.agent.save_journal = lambda *a, **k: None
+    ui.agent.build_recall_message = lambda m: None
+    ui.agent.build_light_system_prompt = lambda: "system"
+
+    def fake_loop(history, llm_cfg, ctx, mem, code, **kw):
+        try:
+            barrier.wait()
+            reached.append(True)
+        except threading.BrokenBarrierError:
+            reached.append(False)
+        return LoopResult(
+            visible="ok", thinking="", last_raw="ok",
+            history=list(history) + [{"role": "assistant", "content": "ok"}],
+            action_taken=True,
+        )
+
+    ui.run_agent_loop = fake_loop
+    out = {}
+    try:
+        t1 = _post_chat(server, "hi", "t-parallel-a", out, 1)
+        t2 = _post_chat(server, "hi", "t-parallel-b", out, 2)
+        t1.join(10)
+        t2.join(10)
+    finally:
+        ui.run_agent_loop, ui.agent.build_light_system_prompt, \
+            ui.agent.build_recall_message, ui.agent.save_journal = originals
+        for cid in ("t-parallel-a", "t-parallel-b"):
+            ui._sessions.pop(cid, None)
+            ui._session_locks.pop(cid, None)
+        _stop(server)
+
+    assert reached == [True, True], reached
+
+
+def test_system_prompt_is_rebuilt_each_turn():
+    """The continuity block and current time must not freeze at session start."""
+    from saku.agent_loop import LoopResult
+
+    server = _start_server()
+    prompts = iter(["system-1", "system-2", "system-3"])
+    originals = (ui.run_agent_loop, ui.agent.build_light_system_prompt,
+                 ui.agent.build_recall_message, ui.agent.save_journal)
+    ui.agent.save_journal = lambda *a, **k: None
+    ui.agent.build_recall_message = lambda m: None
+    ui.agent.build_light_system_prompt = lambda: next(prompts)
+
+    def fake_loop(history, llm_cfg, ctx, mem, code, **kw):
+        return LoopResult(
+            visible="ok", thinking="", last_raw="ok",
+            history=list(history) + [{"role": "assistant", "content": "ok"}],
+            action_taken=True,
+        )
+
+    ui.run_agent_loop = fake_loop
+    out = {}
+    try:
+        for i in (1, 2):
+            t = _post_chat(server, f"m{i}", "t-fresh-prompt", out, i)
+            t.join(10)
+        stored = ui._sessions.get("t-fresh-prompt", [])
+    finally:
+        ui.run_agent_loop, ui.agent.build_light_system_prompt, \
+            ui.agent.build_recall_message, ui.agent.save_journal = originals
+        ui._sessions.pop("t-fresh-prompt", None)
+        ui._session_locks.pop("t-fresh-prompt", None)
+        _stop(server)
+
+    assert stored and stored[0]["role"] == "system"
+    assert stored[0]["content"] == "system-2"
+    assert stored.count({"role": "system", "content": "system-1"}) == 0
+
+
 def test_proactive():
     """GET /api/proactive returns the daemon's notification and then clears it.
 
