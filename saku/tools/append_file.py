@@ -7,7 +7,7 @@ directly after the matching ## heading line, before the next ## or ### heading.
 import re
 from pathlib import Path
 
-from saku.config import get_path_policy
+from saku.config import get_path_policy, normalize_memory_path
 
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
@@ -20,14 +20,18 @@ def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
 
     heading = kwargs.get("heading", "").strip()
 
-    if path == "meta.md" and not heading:
+    rel = normalize_memory_path(path)
+    if rel is None:
+        return f"[DENY] cannot append to: {path}"
+
+    if rel == "meta.md" and not heading:
         return "[ERROR] meta.md requires heading= parameter to specify which ## section to append to"
 
     # meta.md is append-only (not in write_allowed, but APPEND_FILE may target it)
-    if not (policy.is_write_allowed(path) or path == "meta.md"):
+    if not (policy.is_write_allowed(rel) or rel == "meta.md"):
         return f"[DENY] cannot append to: {path}"
 
-    target = (base / path).resolve()
+    target = (base / rel).resolve()
     if not target.is_relative_to(base.resolve()):
         return "[DENY] scope outside memory directory"
 

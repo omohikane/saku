@@ -10,6 +10,24 @@ from pathlib import Path
 
 MAX_DELEGATION_DEPTH = 3
 
+# A child name is a file stem, never a path (#124). Without this check
+# ``spawn_child(root, "../meta", ...)`` wrote outside ``children/``, and
+# ``load_child_genome`` could read any ``.md`` in the memory root.
+_CHILD_NAME_MAX = 64
+
+
+def valid_child_name(name: str) -> bool:
+    """Whether a name is safe to use as ``children/<name>.md``."""
+    n = (name or "").strip()
+    if not n or len(n) > _CHILD_NAME_MAX:
+        return False
+    if n in (".", ".."):
+        return False
+    if "/" in n or "\\" in n or "\x00" in n:
+        return False
+    # A leading dot would create a hidden file, which the tool listing skips.
+    return not n.startswith(".")
+
 _depth_lock = threading.Lock()
 _delegation_depth = 0
 
@@ -19,6 +37,8 @@ def spawn_child(memory_root: Path, name: str, genome: str) -> str:
     name = name.strip()
     if not name:
         return "[ERROR] child name required"
+    if not valid_child_name(name):
+        return "[ERROR] invalid child name (no path separators, dot segments or absolute paths)"
     if not genome.strip():
         return "[ERROR] child role/genome required"
     children_dir = memory_root / "children"
@@ -29,6 +49,8 @@ def spawn_child(memory_root: Path, name: str, genome: str) -> str:
 
 
 def load_child_genome(memory_root: Path, name: str) -> str | None:
+    if not valid_child_name(name):
+        return None
     p = memory_root / "children" / f"{name}.md"
     if not p.exists():
         return None

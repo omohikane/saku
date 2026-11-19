@@ -9,6 +9,7 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 
 ### Fixed
 
+- Path policy now decides on the normalized path (#124): one file is one verdict. `study/../meta.md` used to pass the allow-list (starts with `study/`) and the deny-list (is not exactly `meta.md`), then resolve to `meta.md` and overwrite it; `study/../state/STOP` could be deleted the same way. `normalize_memory_path()` collapses dot segments, treats backslashes as separators, and rejects absolute, quoted and escaping paths, and every file tool (`READ_FILE`, `WRITE_FILE`, `APPEND_FILE`, `MOVE_FILE`, `DELETE_FILE`, `LIST_DIR`) uses it before the filesystem is touched. `PathPolicy.is_delete_allowed()` centralizes the delete rule. Child agent names are validated as identifiers, so `../` cannot place or read a genome outside `children/`.
 - A chat turn whose LLM stream closed without producing any content no longer looks like an ordinary empty reply: the call returns `[ERROR] empty reply from '<profile>': the stream ended without content after Ns`, and the daemon logs every failed call (with its reason) instead of only "no text". Provider-side deadlines and rejected credentials were previously invisible in `saku.log`. (#113)
 
 ### Added

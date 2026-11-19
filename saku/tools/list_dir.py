@@ -3,24 +3,27 @@
 import os
 from pathlib import Path
 
-from saku.config import get_path_policy
+from saku.config import get_path_policy, normalize_memory_path
 
 _CODE_ROOT = Path(__file__).resolve().parent.parent
 
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     # Root listing (path="") is always allowed; subdirectories must be read-allowed.
-    if path and not get_path_policy().is_read_allowed(path):
+    rel = normalize_memory_path(path) if path else ""
+    if rel is None:
+        return f"[DENY] cannot list: {path}"
+    if rel and not get_path_policy().is_read_allowed(rel):
         return f"[DENY] cannot list: {path}"
 
-    if path.startswith("saku/"):
+    if rel.startswith("saku/"):
         vault = _CODE_ROOT.parent  # repo root
-        target = (vault / path).resolve() if path else vault.resolve()
+        target = (vault / rel).resolve() if rel else vault.resolve()
         if not target.is_relative_to(vault.resolve()):
             return "[DENY] scope outside vault"
     else:
         vault = base.parent if base.name == "_saku" else base
-        target = (base / path).resolve() if path else base.resolve()
+        target = (base / rel).resolve() if rel else base.resolve()
         if not target.is_relative_to(vault.resolve()):
             return "[DENY] scope outside vault"
 

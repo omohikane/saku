@@ -2,23 +2,24 @@
 
 from pathlib import Path
 
-from saku.config import get_path_policy
+from saku.config import get_path_policy, normalize_memory_path
 
 _CODE_ROOT = Path(__file__).resolve().parent.parent
 
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
-    if not get_path_policy().is_read_allowed(path):
+    rel = normalize_memory_path(path)
+    if rel is None or not get_path_policy().is_read_allowed(rel):
         return f"[DENY] cannot read from: {path}"
 
-    if path.startswith("saku/"):
+    if rel.startswith("saku/"):
         vault = _CODE_ROOT.parent  # repo root
-        target = (vault / path).resolve()
+        target = (vault / rel).resolve()
         if not target.is_relative_to(vault.resolve()):
             return "[DENY] scope outside vault"
     else:
         vault = base.parent if base.name == "_saku" else base
-        target = (base / path).resolve()
+        target = (base / rel).resolve()
         if not target.is_relative_to(vault.resolve()):
             return "[DENY] scope outside vault"
 

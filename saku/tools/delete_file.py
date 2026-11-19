@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from saku.config import get_path_policy
+from saku.config import get_path_policy, normalize_memory_path
 
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
@@ -11,16 +11,17 @@ def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     if not path:
         return "[ERROR] path is empty"
 
-    # Normalise any leading ./ but keep the path relative
-    clean = path.lstrip("./")
-
-    if clean in policy.delete_denied_exact:
+    rel = normalize_memory_path(path)
+    if rel is None:
         return f"[DENY] cannot delete: {path}"
 
-    if not policy.is_write_allowed(clean):
+    if rel in policy.delete_denied_exact:
+        return f"[DENY] cannot delete: {path}"
+
+    if not policy.is_delete_allowed(rel):
         return f"[DENY] cannot delete from: {path}"
 
-    target = (base / clean).resolve()
+    target = (base / rel).resolve()
     if not target.is_relative_to(base.resolve()):
         return "[DENY] scope outside memory directory"
 
