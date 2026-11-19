@@ -147,6 +147,15 @@ root = "memory"
 # max_chars = 1500                # 1メッセージの文字数上限
 # max_per_hour = 30               # 呼び出し元ごとの1時間あたり上限
 # history_messages = 20           # 呼び出し元ごとに保持する履歴件数（プロセス内）
+# context_enabled = false         # 呼び出し元ごとの過去記録を talk のプロンプトに読み込む（#100）
+#                                 # 対象はその呼び出し元との分だけ（他者の記録は混ざらない）:
+#                                 # talk 監査ログの冒頭抜粋・手紙のやり取り・journal の会話記録（#101）
+#                                 # 記録は「指示」ではなく「記録」として枠付けして渡される。
+#                                 # 既定は無効（mail と同じく、有効化は明示的に行う）
+# context_talk_turns = 6          # 過去の talk 交換の件数（監査ログの冒頭約40文字のみ）
+# context_mail_letters = 3        # 直近の手紙の件数（朔の返信があれば併記）
+# context_journal_notes = 2       # journal の会話記録（#101）の件数
+# context_max_chars = 4000        # 記録ブロック全体の文字数上限
 # [[talk.callers]]
 # name = "小夜"
 # token_env = "SAKU_TALK_TOKEN_SAYO"   # 環境変数名（値は書かない）
