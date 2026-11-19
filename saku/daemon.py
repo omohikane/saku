@@ -35,6 +35,7 @@ from saku import mail as saku_mail
 from saku import provenance
 from saku import persona
 from saku import reflection
+from saku import skills as saku_skills
 from saku import weekly
 from saku.agent_loop import run_agent_loop as _run_agent_loop
 from saku.vault_git import pull_if_due as _git_pull_if_due
@@ -880,10 +881,23 @@ def check_scheduled_tasks() -> None:
         if due <= now:
             task = it.get("task", "")
             print(f"[*] Scheduled task due: {when_str} -> {task[:50]}")
-            success, _ = run_agent_loop(task, f"scheduled:{it.get('id','')}", autonomous=True)
+            success, visible = run_agent_loop(task, f"scheduled:{it.get('id','')}", autonomous=True)
             it["status"] = "done" if success else "pending"
             it["executed"] = now.strftime("%Y-%m-%d %H:%M")
             updated = True
+            if success:
+                # #104: a completed scheduled task is the one place "success"
+                # is a verified fact (the run acted without error). Distil the
+                # procedure into skills/ while the completion report is at
+                # hand. Learning is opt-in ([skills] learning_enabled) and
+                # never raises, so task bookkeeping is unaffected by it.
+                saku_skills.learn_from_scheduled_task(
+                    it,
+                    visible,
+                    cfg=agent._cfg,
+                    memory_root=MEMORY_ROOT,
+                    llm_cfg=agent._current_llm,
+                )
     if updated:
         sched_file.write_text(json.dumps(items, indent=2, ensure_ascii=False), encoding="utf-8")
 
