@@ -133,7 +133,7 @@ def run_reflection(target_date: str = None) -> None:
 
     result = _run_agent_loop(
         history,
-        agent._current_llm,
+        agent.llm_for_role("background"),
         agent.context_config,
         agent.MEMORY_ROOT,
         agent.CODE_ROOT,

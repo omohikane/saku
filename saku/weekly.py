@@ -150,7 +150,7 @@ def run_weekly_review(now: datetime | None = None) -> dict:
     print(f"[*] Contacting LLM for the weekly review ({week}, {len(dates)} days)...")
     loop_result = _run_agent_loop(
         history,
-        agent._current_llm,
+        agent.llm_for_role("background"),
         agent.context_config,
         agent.MEMORY_ROOT,
         agent.CODE_ROOT,

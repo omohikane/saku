@@ -36,7 +36,6 @@ from saku import core as agent
 
 _cfg, _config_base = saku_config.load_config()
 _MEMORY_ROOT = agent.MEMORY_ROOT
-_LLM = agent._current_llm
 _CTX = agent.context_config
 _UI_INBOX = _MEMORY_ROOT / "state" / "ui_inbox.json"
 
@@ -461,7 +460,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             result = run_agent_loop(
                 history,
-                _LLM,
+                agent.llm_for_role("chat"),
                 _CTX,
                 _MEMORY_ROOT,
                 agent.CODE_ROOT,

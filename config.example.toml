@@ -5,6 +5,17 @@
 # Select which LLM profile to use (must match a profile name below)
 active_profile = "local"
 
+# Role-based routing (optional, #105): route tasks to different profiles.
+# A role key names a profile below and wins over active_profile for that
+# role only. Leave a role unset to keep using active_profile (the default
+# behaviour — nothing changes until a role is set here).
+#   chat       — conversation: Web UI, chat.md replies, spontaneous speech,
+#                mail replies, MCP talk (a fast local model fits here)
+#   background — autonomous tick, inbox processing, chat archive, scheduled
+#                tasks, nightly reflection, dreaming, weekly review
+# chat = "local"
+# background = "local"
+
 # Fallback settings (used if profiles are not defined or for backward compatibility)
 api_url = "http://127.0.0.1:8080/v1/chat/completions"
 api_key = ""

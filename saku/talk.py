@@ -274,7 +274,7 @@ class TalkEngine:
             else:
                 if self.llm_cfg is None:
                     cfg, _ = saku_config.load_config()
-                    self.llm_cfg = saku_config.load_active_llm(cfg)
+                    self.llm_cfg = saku_config.load_llm_for_role(cfg, "chat")
                 reply_text = _default_reply(
                     caller, message, history, self.llm_cfg, self.memory_root
                 )

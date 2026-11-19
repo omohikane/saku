@@ -441,7 +441,7 @@ def check_mail_and_reply(
             reply_text = reply_fn(letter, _recent_chat_context(memory_root, mcfg.context_messages))
         else:
             if llm_cfg is None:
-                llm_cfg = saku_config.load_active_llm(cfg)
+                llm_cfg = saku_config.load_llm_for_role(cfg, "chat")
             reply_text = _default_reply(
                 letter, _recent_chat_context(memory_root, mcfg.context_messages),
                 llm_cfg, memory_root,
