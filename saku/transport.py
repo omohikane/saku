@@ -198,6 +198,22 @@ def _normalize_alternative_calls(
     return normalize_single_bracket_calls(raw, memory_root, code_root)
 
 
+_COMPLETE_BLOCK_RE = re.compile(
+    r"\[\[[A-Z_]+\s*[^\]]*\]\]\s*\n?.*?\[\[END\]\]", re.DOTALL
+)
+
+
+def tool_call_text(raw: str) -> str:
+    """Return the complete tool blocks of ``raw``, whitespace-normalized.
+
+    Used to compare one turn's tool request with the previous one (#130): two
+    different operations that happen to return the same success string are not
+    a repetition, because their name, arguments or body differ here.
+    """
+    blocks = [m.group(0) for m in _COMPLETE_BLOCK_RE.finditer(raw)]
+    return re.sub(r"\s+", " ", "\n".join(blocks)).strip()
+
+
 def list_tool_calls(raw: str) -> list[str]:
     """Return the names of the tools a raw LLM reply asks to run (order preserved).
 

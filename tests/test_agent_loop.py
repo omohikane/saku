@@ -305,6 +305,152 @@ def test_incomplete_stream_does_not_run_tools():
         assert any("incomplete stream" in msg for msg in logs), logs
 
 
+def test_llm_calls_are_counted_accurately():
+    """#130: turns used to describe something other than the calls made."""
+    calls = {"n": 0}
+
+    def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
+        calls["n"] += 1
+        return "回答"
+
+    llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
+    original = agent_loop.chat_stream
+    agent_loop.chat_stream = fake_chat_stream
+    try:
+        result = agent_loop.run_agent_loop(
+            [{"role": "system", "content": "sys"}, {"role": "user", "content": "hi"}],
+            llm, _make_ctx(), Path("/tmp"), Path("/tmp"),
+        )
+    finally:
+        agent_loop.chat_stream = original
+
+    assert calls["n"] == 1
+    assert result.llm_calls == 1
+    assert result.turns == result.llm_calls
+    assert result.finish_reason == "answered"
+
+
+def test_preamble_turn_is_rescued_into_an_answer():
+    """#130: hitting the turn limit on a preamble must not post it as the reply."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "tools").mkdir()
+        (root / "tools" / "echo.py").write_text(
+            "def run(base, path, body='', **kw):\n    return 'echo:' + body\n",
+            encoding="utf-8",
+        )
+
+        def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
+            if any("ツールはもう使えません" in str(m.get("content", "")) for m in history):
+                return "最終回答です。"
+            return "確認します。\n\n[[ECHO]]\nhi\n[[END]]"
+
+        llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
+        original = agent_loop.chat_stream
+        agent_loop.chat_stream = fake_chat_stream
+        try:
+            result = agent_loop.run_agent_loop(
+                [{"role": "system", "content": "sys"}, {"role": "user", "content": "go"}],
+                llm, _make_ctx(), root, root, max_turns=1,
+            )
+        finally:
+            agent_loop.chat_stream = original
+
+        assert result.visible == "最終回答です。"
+        assert result.finish_reason == "answered"
+        assert result.llm_calls == 2  # the tool turn + the rescue
+        assert result.tool_calls == 1
+
+
+def test_different_calls_with_the_same_success_text_do_not_look_repeated():
+    """#130: two writes that both return the same string are two operations."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "tools").mkdir()
+        (root / "tools" / "same.py").write_text(
+            "def run(base, path, body='', **kw):\n    return 'ok'\n",
+            encoding="utf-8",
+        )
+
+        turns = {"n": 0}
+
+        def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
+            turns["n"] += 1
+            if turns["n"] == 1:
+                return "[[SAME]]\nfirst\n[[END]]"
+            if turns["n"] == 2:
+                return "[[SAME]]\nsecond\n[[END]]"
+            return "完了"
+
+        llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
+        original = agent_loop.chat_stream
+        agent_loop.chat_stream = fake_chat_stream
+        try:
+            result = agent_loop.run_agent_loop(
+                [{"role": "system", "content": "sys"}, {"role": "user", "content": "go"}],
+                llm, _make_ctx(), root, root,
+            )
+        finally:
+            agent_loop.chat_stream = original
+
+        assert turns["n"] == 3
+        assert result.finish_reason == "answered"
+        assert result.tool_calls == 2
+        assert result.tools_succeeded == 2
+
+
+def test_identical_call_is_still_a_repetition():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "tools").mkdir()
+        (root / "tools" / "same.py").write_text(
+            "def run(base, path, body='', **kw):\n    return 'ok'\n",
+            encoding="utf-8",
+        )
+
+        def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
+            return "[[SAME]]\nsame\n[[END]]"
+
+        llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
+        original = agent_loop.chat_stream
+        agent_loop.chat_stream = fake_chat_stream
+        try:
+            result = agent_loop.run_agent_loop(
+                [{"role": "system", "content": "sys"}, {"role": "user", "content": "go"}],
+                llm, _make_ctx(), root, root, max_turns=5,
+            )
+        finally:
+            agent_loop.chat_stream = original
+
+        assert result.finish_reason == "repeated_tool"
+        assert result.tool_calls == 2  # it ran once, then the repeat halted the loop
+
+
+def test_finish_reason_for_errors_and_cancellation():
+    llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
+
+    original = agent_loop.chat_stream
+    agent_loop.chat_stream = lambda h, c, on_token=None, status=None: "[ERROR] down"
+    try:
+        result = agent_loop.run_agent_loop(
+            [{"role": "system", "content": "sys"}, {"role": "user", "content": "hi"}],
+            llm, _make_ctx(), Path("/tmp"), Path("/tmp"),
+        )
+    finally:
+        agent_loop.chat_stream = original
+    assert result.finish_reason == "error"
+
+    agent_loop.chat_stream = lambda h, c, on_token=None, status=None: "回答"
+    try:
+        result = agent_loop.run_agent_loop(
+            [{"role": "system", "content": "sys"}, {"role": "user", "content": "hi"}],
+            llm, _make_ctx(), Path("/tmp"), Path("/tmp"), should_stop=lambda: True,
+        )
+    finally:
+        agent_loop.chat_stream = original
+    assert result.finish_reason == "cancelled"
+
+
 def test_run_agent_loop_no_tools():
     calls = {"n": 0}
 
