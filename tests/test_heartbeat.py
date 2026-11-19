@@ -15,7 +15,13 @@ _REPO_ROOT = CODE_ROOT.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from saku import daemon as daemon_mod
 from saku import heartbeat
+from _isolate_logging import isolate_daemon_logging
+
+# The daemon module configures file logging at import time, against the Owner's
+# real state/saku.log. Redirect it before any test exercises the logger (#42).
+isolate_daemon_logging(daemon_mod.logger)
 
 
 def test_beat_writes_and_reads_back():
@@ -119,8 +125,6 @@ def test_status_line_never_raises():
 def test_daemon_check_heartbeat_gap_notifies_once():
     """The daemon reports a gap before its first beat overwrites the evidence."""
     import json
-
-    from saku import daemon as daemon_mod
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
