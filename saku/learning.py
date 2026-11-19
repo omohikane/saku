@@ -31,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
@@ -179,9 +180,32 @@ def save_state(path: Path, state: dict) -> None:
     tmp.replace(path)
 
 
-def is_processed(state: dict, note: NoteInfo) -> bool:
+def is_processed(state: dict, note: NoteInfo, *, now: float | None = None) -> bool:
+    """Whether this note's current content has already been handled (#129).
+
+    ``ok``, ``empty`` and ``skipped`` are terminal. ``error`` is retryable, but
+    only after its backoff delay; an entry written by an older extractor (or by
+    the pre-#129 schema, which stored no version) is reprocessed.
+    """
     entry = state.get("notes", {}).get(note.name)
-    return bool(entry) and entry.get("sha256") == note.sha256
+    if not entry or entry.get("sha256") != note.sha256:
+        return False
+    if entry.get("extractor") != dreaming.EXTRACTOR_VERSION:
+        return False
+    status = entry.get("status", "ok")
+    if status in ("ok", "empty", "skipped"):
+        return True
+    if status == "error":
+        retry_at = float(entry.get("retry_after", 0) or 0)
+        return (time.time() if now is None else now) < retry_at
+    return False
+
+
+def retry_delay(config: "saku_config.LearningConfig", attempts: int) -> int:
+    """Exponential backoff for a failed extraction, capped by config."""
+    base = max(1, config.retry_base_seconds)
+    delay = base * (2 ** max(0, attempts - 1))
+    return int(min(delay, max(base, config.retry_max_seconds)))
 
 
 # ── Selection ───────────────────────────────────────────
@@ -193,6 +217,7 @@ def select_notes(
     since: str = "",
     only: str = "",
     rebuild: bool = False,
+    now: float | None = None,
 ) -> list[NoteInfo]:
     """Notes that still need learning, newest first."""
     picked = []
@@ -201,7 +226,7 @@ def select_notes(
             continue
         if since and note.date < since:
             continue
-        if not rebuild and is_processed(state, note):
+        if not rebuild and is_processed(state, note, now=now):
             continue
         picked.append(note)
     if limit and limit > 0:
@@ -218,6 +243,7 @@ def learn_notes(
     state: dict,
     apply: bool = False,
     llm_cfg=None,
+    now: float | None = None,
 ) -> dict:
     """Extract and (when ``apply``) store memory items from ``notes``.
 
@@ -228,6 +254,8 @@ def learn_notes(
         "dry_run": not apply,
         "processed": [],
         "skipped": [],
+        "errors": [],
+        "empties": 0,
         "items": 0,
         "added": 0,
     }
@@ -251,19 +279,45 @@ def learn_notes(
             if apply:
                 state.setdefault("notes", {})[note.name] = {
                     "sha256": note.sha256,
+                    "status": "skipped",
                     "learned_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "items": 0,
                     "skipped": "min_chars",
+                    "extractor": dreaming.EXTRACTOR_VERSION,
                 }
             continue
         if config.max_chars and len(body) > config.max_chars:
             body = body[: config.max_chars]
 
-        items = dreaming.extract_items_from_text(
+        result = dreaming.extract_items_from_text_result(
             body, date=note.date, kind="daily", llm_cfg=llm_cfg
         )
+        items = result.items
+
+        if result.status == "error":
+            # A failed call is retryable, never "nothing to learn" (#129).
+            # Record the attempt and a backoff deadline so the note is not
+            # re-selected on the next run and a stuck model cannot hammer away.
+            report["errors"].append((note.name, result.error or "extraction failed"))
+            if apply:
+                previous = state.get("notes", {}).get(note.name, {})
+                attempts = int(previous.get("attempts", 0)) + 1
+                base_ts = time.time() if now is None else now
+                state.setdefault("notes", {})[note.name] = {
+                    "sha256": note.sha256,
+                    "status": "error",
+                    "attempts": attempts,
+                    "retry_after": base_ts + retry_delay(config, attempts),
+                    "error": (result.error or "extraction failed")[:200],
+                    "extractor": dreaming.EXTRACTOR_VERSION,
+                    "learned_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            continue
+
         report["processed"].append((note.name, items))
         report["items"] += len(items)
+        if result.status == "empty":
+            report["empties"] += 1
 
         added: list[str] = []
         if apply and items and config.write_memory:
@@ -274,12 +328,18 @@ def learn_notes(
                 source=provenance.make_ref(provenance.KIND_DAILY, note.date),
             )
             report["added"] += len(added)
-            state.setdefault("notes", {})[note.name] = {
+
+        if apply and (config.write_memory or not items):
+            entry = {
                 "sha256": note.sha256,
-                "learned_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "status": result.status,
                 "items": len(items),
-                "added": len(added),
+                "extractor": dreaming.EXTRACTOR_VERSION,
+                "learned_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
+            if items:
+                entry["added"] = len(added)
+            state.setdefault("notes", {})[note.name] = entry
     return report
 
 
@@ -530,6 +590,7 @@ def run_cli(
     rebuild: bool = False,
     llm_cfg=None,
     verbose: bool = True,
+    now: float | None = None,
 ) -> dict:
     """Resolve config paths, select notes and learn. Shared by the CLI and tests."""
     lcfg = saku_config.load_learning_config(cfg)
@@ -545,6 +606,7 @@ def run_cli(
         since=since,
         only=only,
         rebuild=rebuild,
+        now=now,
     )
 
     if verbose:
@@ -560,6 +622,7 @@ def run_cli(
         state=state,
         apply=apply and lcfg.write_memory,
         llm_cfg=llm_cfg,
+        now=now,
     )
     report.setdefault("wiki_created", [])
     report.setdefault("wiki_updated", [])
@@ -592,6 +655,10 @@ def run_cli(
                 print(f"    - [{category}] {content}")
         for name, why in report["skipped"]:
             print(f"  - skip {name}: {why}")
+        for name, why in report["errors"]:
+            print(f"  - error {name}: {why} (will retry after the backoff)")
+        if report["empties"]:
+            print(f"  - {report['empties']} note(s) had nothing durable (recorded as processed)")
         verb = "added" if apply else "would add"
         print(
             f"  total: {report['items']} item(s) extracted, "

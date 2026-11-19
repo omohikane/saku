@@ -48,16 +48,18 @@ def _cfg(daily: Path, **learning_cfg) -> dict:
     return cfg
 
 
-def _install_extract(items):
-    learning.dreaming._saved_extract = learning.dreaming.extract_items_from_text
+def _install_extract(items, status=None):
+    learning.dreaming._saved_extract = learning.dreaming.extract_items_from_text_result
     learning._saved_concepts = learning.build_concepts
     calls = []
 
     def _extract(text, *, date, kind="daily", llm_cfg=None):
         calls.append({"text": text, "date": date, "kind": kind})
-        return list(items)
+        return learning.dreaming.Extraction(
+            status=status or ("ok" if items else "empty"), items=list(items)
+        )
 
-    learning.dreaming.extract_items_from_text = _extract
+    learning.dreaming.extract_items_from_text_result = _extract
     # These tests are about the memory stage; the wiki stage is covered in
     # test_learn_wiki.py and must not reach the network here.
     learning.build_concepts = lambda *a, **k: []
@@ -65,7 +67,7 @@ def _install_extract(items):
 
 
 def _restore_extract():
-    learning.dreaming.extract_items_from_text = learning.dreaming._saved_extract
+    learning.dreaming.extract_items_from_text_result = learning.dreaming._saved_extract
     learning.build_concepts = learning._saved_concepts
 
 
@@ -117,7 +119,16 @@ def test_select_notes_skips_unchanged_and_honours_filters():
         for day in ("2026-11-16", "2026-11-17", "2026-11-18"):
             (daily / f"{day}.md").write_text(NOTE, encoding="utf-8")
         notes = learning.list_notes(daily)
-        state = {"version": 1, "notes": {notes[0].name: {"sha256": notes[0].sha256}}}
+        state = {
+            "version": 1,
+            "notes": {
+                notes[0].name: {
+                    "sha256": notes[0].sha256,
+                    "status": "ok",
+                    "extractor": learning.dreaming.EXTRACTOR_VERSION,
+                }
+            },
+        }
         picked = learning.select_notes(notes, state)
         assert [n.name for n in picked] == ["2026-11-17.md", "2026-11-16.md"]
 
@@ -265,6 +276,93 @@ def test_redaction_reaches_the_prompt():
             _restore_extract()
         assert "090-1111-2222" not in calls[0]["text"]
         assert "[redacted-phone]" in calls[0]["text"]
+
+
+def test_empty_extraction_is_recorded_as_processed():
+    """#129: 'nothing durable' is a result, not a pending note."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _vault_dir, memory, daily = _vault(Path(tmp))
+        (daily / "2026-11-18.md").write_text(NOTE, encoding="utf-8")
+        calls = _install_extract([])
+        try:
+            first = learning.run_cli(
+                _cfg(daily), Path(tmp), memory, apply=True, verbose=False
+            )
+            second = learning.run_cli(
+                _cfg(daily), Path(tmp), memory, apply=True, verbose=False
+            )
+        finally:
+            _restore_extract()
+
+        assert first["empties"] == 1
+        assert second["processed"] == [], "an empty result was retried forever"
+        assert calls and len(calls) == 1
+
+        state = json.loads((memory / "state" / "learning.json").read_text(encoding="utf-8"))
+        entry = state["notes"]["2026-11-18.md"]
+        assert entry["status"] == "empty"
+        assert entry["extractor"] == learning.dreaming.EXTRACTOR_VERSION
+        assert not (memory / "MEMORY.md").exists()
+
+
+def test_failed_extraction_gets_a_backoff_and_is_retried_later():
+    """#129: an error is retryable, but only after its waiting period."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _vault_dir, memory, daily = _vault(Path(tmp))
+        (daily / "2026-11-18.md").write_text(NOTE, encoding="utf-8")
+        calls = _install_extract([], status="error")
+        t0 = 1_000_000.0
+        try:
+            first = learning.run_cli(
+                _cfg(daily, retry_base_seconds=60),
+                Path(tmp), memory, apply=True, verbose=False, now=t0,
+            )
+            still_waiting = learning.run_cli(
+                _cfg(daily, retry_base_seconds=60),
+                Path(tmp), memory, apply=True, verbose=False, now=t0 + 30,
+            )
+            retried = learning.run_cli(
+                _cfg(daily, retry_base_seconds=60),
+                Path(tmp), memory, apply=True, verbose=False, now=t0 + 61,
+            )
+        finally:
+            _restore_extract()
+
+        assert first["errors"] and first["processed"] == []
+        assert first["items"] == 0
+        assert still_waiting["processed"] == [], "retried before the backoff elapsed"
+        assert retried["processed"] == [], "a failed call cannot produce items"
+        assert len(calls) == 2, calls
+
+        state = json.loads((memory / "state" / "learning.json").read_text(encoding="utf-8"))
+        entry = state["notes"]["2026-11-18.md"]
+        assert entry["status"] == "error"
+        assert entry["attempts"] == 2
+        # Second attempt waits twice as long.
+        assert entry["retry_after"] - (t0 + 61) >= 120 - 1
+        assert not (memory / "MEMORY.md").exists()
+
+
+def test_extractor_version_change_reprocesses_notes():
+    """#129: a new extractor invalidates cached results without touching hashes."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _vault_dir, memory, daily = _vault(Path(tmp))
+        (daily / "2026-11-18.md").write_text(NOTE, encoding="utf-8")
+        _install_extract([("好み・傾向", "静かな朝")])
+        original_version = learning.dreaming.EXTRACTOR_VERSION
+        try:
+            learning.run_cli(_cfg(daily), Path(tmp), memory, apply=True, verbose=False)
+            learning.dreaming.EXTRACTOR_VERSION = original_version + 1
+            calls = _install_extract([("好み・傾向", "静かな朝")])
+            report = learning.run_cli(
+                _cfg(daily), Path(tmp), memory, apply=True, verbose=False
+            )
+        finally:
+            learning.dreaming.EXTRACTOR_VERSION = original_version
+            _restore_extract()
+
+        assert calls, "the note was not reprocessed after the extractor changed"
+        assert [n for n, _ in report["processed"]] == ["2026-11-18.md"]
 
 
 def test_load_learning_config_defaults():

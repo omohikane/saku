@@ -250,13 +250,15 @@ def test_dry_run_never_calls_the_concept_pass():
         )
 
         originals = (
-            learning.dreaming.extract_items_from_text,
+            learning.dreaming.extract_items_from_text_result,
             learning.build_concepts,
             learning.dreaming.agent.build_system_prompt,
         )
-        learning.dreaming.extract_items_from_text = lambda *a, **k: [
-            ("好み・傾向", "静かな朝のほうが集中できる")
-        ]
+        learning.dreaming.extract_items_from_text_result = lambda *a, **k: (
+            learning.dreaming.Extraction(
+                status="ok", items=[("好み・傾向", "静かな朝のほうが集中できる")]
+            )
+        )
 
         def _boom(*a, **k):
             raise AssertionError("concept pass must not run in a dry run")
@@ -273,7 +275,7 @@ def test_dry_run_never_calls_the_concept_pass():
             )
         finally:
             (
-                learning.dreaming.extract_items_from_text,
+                learning.dreaming.extract_items_from_text_result,
                 learning.build_concepts,
                 learning.dreaming.agent.build_system_prompt,
             ) = originals
@@ -295,13 +297,15 @@ def test_apply_stage_writes_wiki_through_run_cli():
         )
 
         originals = (
-            learning.dreaming.extract_items_from_text,
+            learning.dreaming.extract_items_from_text_result,
             learning.build_concepts,
             learning.dreaming.agent.build_system_prompt,
         )
-        learning.dreaming.extract_items_from_text = lambda *a, **k: [
-            ("好み・傾向", "静かな朝のほうが集中できる")
-        ]
+        learning.dreaming.extract_items_from_text_result = lambda *a, **k: (
+            learning.dreaming.Extraction(
+                status="ok", items=[("好み・傾向", "静かな朝のほうが集中できる")]
+            )
+        )
         learning.build_concepts = lambda *a, **k: [
             _concept("静かな朝の集中", "朝は静かな環境のほうが集中しやすい。")
         ]
@@ -316,7 +320,7 @@ def test_apply_stage_writes_wiki_through_run_cli():
             )
         finally:
             (
-                learning.dreaming.extract_items_from_text,
+                learning.dreaming.extract_items_from_text_result,
                 learning.build_concepts,
                 learning.dreaming.agent.build_system_prompt,
             ) = originals

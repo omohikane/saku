@@ -625,6 +625,8 @@ class LearningConfig:
     redact: bool = True
     write_memory: bool = True
     write_wiki: bool = True  # concept notes under wiki/ (one per concept, never per day)
+    retry_base_seconds: int = 3600  # failed extraction: first retry after this
+    retry_max_seconds: int = 86400  # backoff cap
 
 
 def load_learning_config(cfg: dict) -> LearningConfig:
@@ -638,6 +640,8 @@ def load_learning_config(cfg: dict) -> LearningConfig:
         redact=bool(l.get("redact", True)),
         write_memory=bool(l.get("write_memory", True)),
         write_wiki=bool(l.get("write_wiki", True)),
+        retry_base_seconds=int(l.get("retry_base_seconds", 3600)),
+        retry_max_seconds=int(l.get("retry_max_seconds", 86400)),
     )
 
 
