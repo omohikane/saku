@@ -21,7 +21,7 @@ Two storage shapes, one vocabulary:
 A source reference ("ref") is ``<kind>/<detail>``: ``journal/2026-08-30``,
 ``monologue/2026-08-30``, ``inbox/report.md``, ``chat/2026-08-30``,
 ``mail/2026-11-18-002``, ``talk/2026-08-30``, ``task/2026-08-30-3``,
-``agent/<name>``, ``web``, ``owner``, ``self``. An entry may list several
+``daily/2026-11-18``, ``agent/<name>``, ``web``, ``owner``, ``self``. An entry may list several
 refs, comma-separated: that is a *candidate set* ("drawn from one of these
 records"), not a claim that all of them contributed -- dreaming extracts
 from the day's journal and monologue in one combined pass and cannot
@@ -46,6 +46,7 @@ KIND_MAIL = "mail"  # a letter from another agent (detail = letter id)
 KIND_TALK = "talk"  # a synchronous talk conversation (detail = date; the
 # day's exchanges are in mail/talk.log beside the mail audit log)
 KIND_TASK = "task"  # a scheduled task SAKU executed (detail = date + task id)
+KIND_DAILY = "daily"  # one of the Owner's Obsidian daily notes (detail = date)
 KIND_AGENT = "agent"  # another agent's report (detail = agent name)
 KIND_WEB = "web"  # picked up from the Web
 KIND_OWNER = "owner"  # the Owner's own words, recorded directly
@@ -59,6 +60,7 @@ KNOWN_KINDS = {
     KIND_MAIL,
     KIND_TALK,
     KIND_TASK,
+    KIND_DAILY,
     KIND_AGENT,
     KIND_WEB,
     KIND_OWNER,

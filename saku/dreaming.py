@@ -231,7 +231,6 @@ def review(
 
 def extract_items(target_date: str, journal: str, monologue: str) -> list[tuple[str, str]]:
     """Ask the LLM to extract durable memory items as [[MEMORY]] blocks."""
-    system_prompt = agent.build_system_prompt()
     user_prompt = f"""[system] 夢見（dreaming）の時間です。あなたの短期的な記録から、
 長期的に残す価値のある記憶を抽出してください。
 
@@ -259,20 +258,74 @@ content: 一行で簡潔に（日付は書かない。日付は自動で付与�
 
 複数あるなら複数出力。無ければ [NO_MEMORY] とだけ出力。
 """
+    return _run_extraction(user_prompt)
 
+
+def extract_items_from_text(
+    text: str,
+    *,
+    date: str,
+    kind: str = "daily",
+    llm_cfg=None,
+) -> list[tuple[str, str]]:
+    """Extract durable memory items from an Owner record (issue #68).
+
+    ``saku learn`` uses this for daily notes; dreaming keeps its own
+    two-record prompt above. The output shape, category vocabulary and parsing
+    are shared, so ``append_items`` stores both identically.
+
+    Returns ``(category, content)`` pairs. An empty list means either "nothing
+    durable here" or a failed call -- the caller decides whether that matters.
+    """
+    label = {"daily": "Ownerのデイリーノート", "journal": "日記"}.get(kind, "記録")
+    user_prompt = f"""[system] {label}から、長期的に残す価値のある記憶を抽出してください。
+
+【対象日 ({date}) の記録】
+{text if text else "(空)"}
+
+抽出するもの:
+1. Owner自身に関する永続的な事実（生活・環境・健康・人間関係）
+2. 好み・傾向・判断基準
+3. 重要な学び・決定とその理由
+4. 進行中のプロジェクト・関心の現状
+
+除外するもの:
+- 一時的な作業ログ（課題ID・工数の表・日報の写し）
+- その場限りの感情・天気・予定の列挙
+- 既に principles/ や meta.md に記録済みの内容
+- 連絡先（電話番号・メールアドレス・住所）は絶対に書かない
+
+出力形式（ツールは使わない。この形式のみ出力。※必ず単括弧を使うこと）:
+[MEMORY]
+category: 永続的な事実|好み・傾向|重要な学び|進行中プロジェクト|方針・決定
+content: 一行で簡潔に（日付は書かない。日付は自動で付与される）
+[/MEMORY]
+
+複数あるなら複数出力。無ければ [NO_MEMORY] とだけ出力。
+"""
+    return _run_extraction(user_prompt, llm_cfg=llm_cfg)
+
+
+def _run_extraction(user_prompt: str, *, llm_cfg=None) -> list[tuple[str, str]]:
+    """Run one tools-disabled extraction call and parse its ``[MEMORY]`` blocks."""
     history = [
-        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": agent.build_system_prompt()},
         {"role": "user", "content": user_prompt},
     ]
 
     result = run_agent_loop(
         history,
-        agent.llm_for_role("background"),
+        llm_cfg or agent.llm_for_role("background"),
         agent.context_config,
         agent.MEMORY_ROOT,
         agent.CODE_ROOT,
         max_turns=1,
+        # The answer is machine-read; streaming it would print raw [MEMORY]
+        # blocks into the CLI and the daemon log.
+        on_visible=lambda _t: None,
     )
+    if not result.last_raw or result.last_raw.startswith("[ERROR]"):
+        return []
 
     items = []
     for m in _MEMORY_ITEM_RE.finditer(result.last_raw):
