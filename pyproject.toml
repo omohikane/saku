@@ -14,7 +14,7 @@ saku = "saku.cli:main"
 
 [project.optional-dependencies]
 # 追加機能は対応 Phase で有効化する（Phase C で mcp、Phase B で ui）
-mcp = ["mcp>=1.0"]
+mcp = ["mcp>=2.0,<3"]
 ui = ["fastapi", "uvicorn", "sse-starlette"]
 
 [build-system]
