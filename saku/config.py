@@ -5,9 +5,10 @@ Provides ``LlmConfig`` to pass LLM settings per call.
 """
 
 import os
+import posixpath
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import tomllib
 
@@ -258,10 +259,50 @@ class PathPolicy:
     delete_denied_exact: list[str]
 
     def is_read_allowed(self, path: str) -> bool:
-        return any(path.startswith(p) for p in self.read_allowed)
+        rel = normalize_memory_path(path)
+        return rel is not None and any(rel.startswith(p) for p in self.read_allowed)
 
     def is_write_allowed(self, path: str) -> bool:
-        return any(path.startswith(p) for p in self.write_allowed)
+        rel = normalize_memory_path(path)
+        if rel is None or rel in self.write_denied_exact:
+            return False
+        return any(rel.startswith(p) for p in self.write_allowed)
+
+    def is_delete_allowed(self, path: str) -> bool:
+        rel = normalize_memory_path(path)
+        if rel is None or rel in self.delete_denied_exact:
+            return False
+        return any(rel.startswith(p) for p in self.write_allowed)
+
+
+def normalize_memory_path(path: str) -> str | None:
+    """Lexically normalize a memory-relative path for policy decisions (#124).
+
+    The policy used to compare the raw string the model wrote, while the tool
+    resolved the path afterwards. ``study/../meta.md`` therefore passed the
+    allow-list (it starts with ``study/``) and the deny-list (it is not exactly
+    ``meta.md``), then resolved to ``meta.md`` and overwrote it.
+
+    Normalizing first makes one file one decision: dot segments collapse,
+    backslashes become separators, quotes and NUL bytes are rejected, and
+    absolute paths or anything escaping the root returns ``None`` ("not
+    allowed"). This is a *lexical* normalization on purpose: it does not touch
+    the filesystem, so it cannot be fooled by symlinks that do not exist yet.
+    """
+    raw = (path or "").strip().replace("\\", "/").replace("\x00", "")
+    if not raw:
+        return None
+    # Quoted paths are never legitimate file arguments; treat them as foreign
+    # input rather than stripping the quotes and accepting the rest.
+    if raw.startswith('"') or raw.endswith('"'):
+        return None
+    p = PurePosixPath(raw)
+    if p.is_absolute():
+        return None
+    rel = posixpath.normpath(raw)
+    if rel in ("", ".", "..") or rel.startswith("../"):
+        return None
+    return rel
 
 
 def load_path_policy(cfg: dict) -> PathPolicy:

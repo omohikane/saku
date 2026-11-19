@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from saku.config import get_path_policy
+from saku.config import get_path_policy, normalize_memory_path
 
 
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
@@ -14,8 +14,12 @@ def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     if not src or not dst:
         return "[ERROR] 'from' and 'to' parameters are required"
 
-    clean_src = src.lstrip("./")
-    clean_dst = dst.lstrip("./")
+    clean_src = normalize_memory_path(src)
+    clean_dst = normalize_memory_path(dst)
+    if clean_src is None:
+        return f"[DENY] invalid source path: {src}"
+    if clean_dst is None:
+        return f"[DENY] invalid target path: {dst}"
 
     for name, clean in [("source", clean_src), ("target", clean_dst)]:
         if clean in policy.delete_denied_exact:
