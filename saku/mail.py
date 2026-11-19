@@ -15,6 +15,11 @@ Design separations that must not blur:
 * Replies are generated with a plain LLM call — no agent loop, no tools — so a
   letter can never trigger tool execution. The reply prompt may read the letter
   plus recent chat.md context, and its only output is ``outbox/<id>.md``.
+* With ``[convjournal] enabled`` (#101), a successful reply also leaves a
+  short journal note in SAKU's own words (see ``saku/convjournal.py``) —
+  the summary, never the letter body — so the nightly reflection can weigh
+  the conversation. Promotion into durable memory still happens only
+  through reflection / dreaming, never from this path directly.
 
 ``check_mail_and_reply()`` runs ONE poll cycle and is intentionally
 self-contained: the daemon hook is a single call (wired separately, after this
@@ -42,6 +47,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import config as saku_config
+from . import convjournal
 from . import killswitch
 from .llm import chat_stream as _llm_chat_stream
 from .thinking import split_thinking, strip_tool_blocks
@@ -61,6 +67,11 @@ _CHAT_BLOCK = re.compile(
 # ``letter`` is the dict produced by parse_letter(). Tests inject a stub; the
 # default builds a tools-disabled LLM call.
 ReplyFn = Callable[[dict, list], str]
+
+# A journal-note function takes (letter, reply_text) and returns SAKU's
+# journal note about the exchange (#101). Tests inject a stub; the default
+# generates the note with a tools-disabled LLM call (convjournal).
+JournalNoteFn = Callable[[dict, str], str]
 
 
 # ── Letter parsing ──────────────────────────────────────
@@ -276,6 +287,7 @@ def check_mail_and_reply(
     config_base: "Path | None" = None,
     llm_cfg=None,
     reply_fn: "ReplyFn | None" = None,
+    journal_note_fn: "JournalNoteFn | None" = None,
     now: "float | None" = None,
 ) -> dict:
     """Run one mail poll cycle. Returns a summary dict of what happened.
@@ -285,10 +297,12 @@ def check_mail_and_reply(
     creates nothing and writes nothing.
     """
     summary = {"enabled": False, "received": 0, "replied": 0, "rejected": 0,
-               "warnings": 0, "skipped": 0}
+               "warnings": 0, "skipped": 0, "journaled": 0}
     if cfg is None:
         cfg, config_base = saku_config.load_config()
     mcfg = saku_config.load_mail_config(cfg)
+    cj_cfg = saku_config.load_convjournal_config(cfg)
+    guard_cfg = saku_config.load_guard_config(cfg)
     if not mcfg.enabled:
         return summary
     summary["enabled"] = True
@@ -487,6 +501,31 @@ def check_mail_and_reply(
         rec["status"] = "replied"
         rec["at"] = now
         dirty = True
+
+        # Conversation journal (#101): SAKU's own summary of this exchange
+        # joins the day's journal, where the nightly reflection will find
+        # it. Only the summary is recorded — never the letter body — and
+        # nothing is promoted from here. The reply is already sent, so a
+        # journal failure is logged and otherwise changes nothing.
+        if cj_cfg.enabled:
+            try:
+                note = ""
+                if journal_note_fn is not None:
+                    note = journal_note_fn(letter, reply_text)
+                elif llm_cfg is not None:
+                    note = convjournal.generate_note(
+                        llm_cfg, _identity_text(memory_root),
+                        channel=convjournal.CHANNEL_MAIL, partner=claim,
+                        incoming=body, outgoing=reply_text,
+                    )
+                if note and convjournal.append_entry(
+                    memory_root,
+                    channel=convjournal.CHANNEL_MAIL, partner=claim,
+                    note=note, letter_id=lid, guard_cfg=guard_cfg,
+                ):
+                    summary["journaled"] += 1
+            except Exception:
+                logger.exception("mail: conversation journal failed")
 
     if dirty:
         _save_state(state_path, state)

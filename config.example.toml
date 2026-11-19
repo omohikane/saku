@@ -141,6 +141,17 @@ root = "memory"
 # token_env = "SAKU_TALK_TOKEN_SAYO"   # 環境変数名（値は書かない）
 # token_file = ""                      # 秘密ファイルのパスでも可（token_env と排他）
 
+# [convjournal] - 会話ジャーナル（#101）
+# talk / mail の会話のあと、朔自身の言葉で書いた短い要約（誰と・何を話し・
+# どう感じたか）を journal に残し、深夜の reflection（journal を読む）の
+# 材料にする。記録されるのは要約のみで、会話の本文そのものは残らない。
+# 取り込みは reflection / dreaming 経由に限られ、この経路が principles /
+# MEMORY.md を直接書くことはない。各エントリには出典（> source: mail/<手紙ID>
+# または talk/<日付>）が付き、相手の発言は未信頼入力として扱われる。
+# 既定は無効: マージしただけでは稼働中の挙動を変えないため、明示的に有効化する。
+# [convjournal]
+# enabled = false
+
 # [killswitch] - キルスイッチ（#76）
 # フラグファイルが存在する間、自律動作を即時停止する: 自律 tick・インボックス
 # 処理・自発発話・スケジュールタスク・深夜振り返り／夢見／週次レビューは開始
