@@ -262,6 +262,43 @@ def test_generated_config_is_valid_toml_without_previous():
     assert parsed["memory"]["root"] == str(plan.memory_path)
 
 
+HARDENING = [
+    "NoNewPrivileges=true",
+    "PrivateTmp=true",
+    "ProtectSystem=strict",
+    "ProtectHome=read-only",
+]
+
+
+def test_packaging_unit_is_rendered_from_the_same_template():
+    """#133: manual and generated units must not drift apart."""
+    path = Path(__file__).parent.parent / "packaging" / "saku.service"
+    text = path.read_text(encoding="utf-8")
+    body = text[text.index("[Unit]") :]
+    expected = bootstrap.render_unit_template(**bootstrap.MANUAL_UNIT_DEFAULTS)
+    assert body == expected
+    for line in HARDENING:
+        assert line in body
+
+
+def test_generated_unit_has_the_same_hardening():
+    plan = bootstrap.Plan(memory_path=Path("/srv/vault/_saku/memory"))
+    unit = bootstrap.render_unit(plan, "saku")
+    for line in HARDENING:
+        assert line in unit, line
+    assert "ReadWritePaths=" in unit
+    assert str(plan.memory_path) in unit
+
+
+def test_git_root_joins_readwrite_paths():
+    plan = bootstrap.Plan(memory_path=Path("/srv/vault/_saku/memory"),
+                          git_enabled=True, git_root="/srv/vault")
+    unit = bootstrap.render_unit(plan, "saku")
+    line = next(l for l in unit.splitlines() if l.startswith("ReadWritePaths="))
+    assert "/srv/vault/_saku/memory" in line
+    assert "/srv/vault" in line
+
+
 def run_tests():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in tests:

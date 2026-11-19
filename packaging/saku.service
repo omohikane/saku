@@ -1,37 +1,44 @@
 # SAKU systemd service (Web UI + autonomous daemon in one process)
 #
-# Install (edit paths first):
+# Rendered from the same template as `saku bootstrap` (UNIT_TEMPLATE), so the
+# hardening below matches a generated unit. Edit the paths for your machine.
+#
+# Install:
 #   sudo cp packaging/saku.service /etc/systemd/system/
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now saku
 #
 # Logs: journalctl -u saku -f
 #
-# The service assumes:
-#   - the repo is at /opt/saku (change WorkingDirectory)
-#   - a venv exists at /opt/saku/.venv (python -m venv .venv && .venv/bin/pip install -e .)
-#   - the vault memory root is exported via SAKU_MEMORY_ROOT (change below)
+# The defaults assume:
+#   - the repo is at /opt/saku (change WorkingDirectory / paths together)
+#   - a venv exists at /opt/saku/.venv
+#   - the vault memory root is /srv/vault/_saku/memory
 #
 # If you only want the Web UI without the autonomous loop, add:
 #   ExecStart=/opt/saku/.venv/bin/python -m saku.ui --no-daemon
 
 [Unit]
 Description=SAKU — Self-Adapting Knowledge Unit (Web UI + autonomous daemon)
-After=network.target
+After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=saku
-Group=saku
 WorkingDirectory=/opt/saku
+EnvironmentFile=-/etc/saku/saku.env
+Environment=SAKU_CONFIG=/opt/saku/config.toml
 Environment=SAKU_MEMORY_ROOT=/srv/vault/_saku/memory
 ExecStart=/opt/saku/.venv/bin/python -m saku.ui
 Restart=on-failure
 RestartSec=5
-TimeoutStopSec=15
-StandardOutput=journal
-StandardError=journal
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/vault/_saku/memory /home/saku/.config/saku /opt/saku
 
 [Install]
 WantedBy=multi-user.target

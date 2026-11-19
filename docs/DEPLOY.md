@@ -113,7 +113,11 @@ uv run python -m saku.cli setup /path/to/vault/_saku/memory   # explicit path
 The unit is the runtime boundary as well as the supervisor: `User`, `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=read-only` and `ReadWritePaths` decide what the agent's tools can reach. The rationale and the remaining gaps (EXECUTE_CODE isolation, egress, resource limits) are in `docs/ADR_RUNTIME_BOUNDARY.md`.
 
 A single-process unit for Web UI + daemon is bundled
-(`packaging/saku.service`).
+(`packaging/saku.service`). It is rendered from the same template as
+`saku bootstrap` (`bootstrap.UNIT_TEMPLATE`, with the manual defaults in
+`MANUAL_UNIT_DEFAULTS`), so the hardening lines are identical on both paths;
+a test compares the bundled file with the template output. Edit the paths in
+the bundle for your machine.
 
 ```bash
 # Prereq: repo at /opt/saku with venv
