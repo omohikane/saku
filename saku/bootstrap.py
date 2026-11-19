@@ -192,41 +192,75 @@ def render_config(plan: Plan, existing: dict | None = None) -> str:
     return text + "\n".join(managed) + "\n"
 
 
+# The single source for both deployment paths (#133): `saku bootstrap`
+# renders this template, and packaging/saku.service is the same template filled
+# with the documented manual defaults. A test keeps the two in sync, so the
+# hardening (NoNewPrivileges / ProtectSystem / ProtectHome / PrivateTmp /
+# ReadWritePaths) cannot drift out of the manual unit again.
+UNIT_TEMPLATE = """[Unit]
+Description=SAKU — Self-Adapting Knowledge Unit (Web UI + autonomous daemon)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@WORKDIR@
+EnvironmentFile=-/etc/saku/saku.env
+Environment=SAKU_CONFIG=@CONFIG@
+Environment=SAKU_MEMORY_ROOT=@MEMORY@
+ExecStart=@PYTHON@ -m saku.ui
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@READWRITE@
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+# Documented manual deployment (packaging/saku.service).
+MANUAL_UNIT_DEFAULTS = {
+    "user": "saku",
+    "workdir": "/opt/saku",
+    "python": "/opt/saku/.venv/bin/python",
+    "memory": "/srv/vault/_saku/memory",
+    "token_dir": "/home/saku/.config/saku",
+}
+
+
+def render_unit_template(
+    *,
+    user: str,
+    workdir: str,
+    python: str,
+    memory: str,
+    token_dir: str,
+    git_root: str = "",
+) -> str:
+    readwrite = " ".join(p for p in (memory, token_dir, workdir, git_root) if p)
+    return (
+        UNIT_TEMPLATE.replace("@USER@", user)
+        .replace("@WORKDIR@", workdir)
+        .replace("@CONFIG@", f"{workdir}/config.toml")
+        .replace("@MEMORY@", memory)
+        .replace("@PYTHON@", python)
+        .replace("@READWRITE@", readwrite)
+    )
+
+
 def render_unit(plan: Plan, user: str) -> str:
-    python = sys.executable
-    memory = plan.memory_path
-    token_dir = plan.token_file.parent
-    hardening = [
-        "NoNewPrivileges=true",
-        "PrivateTmp=true",
-        "ProtectSystem=strict",
-        "ProtectHome=read-only",
-        f"ReadWritePaths={memory} {token_dir} {REPO_ROOT}"
-        + (f" {plan.git_root}" if plan.git_enabled else ""),
-    ]
-    return "\n".join(
-        [
-            "[Unit]",
-            "Description=SAKU — Self-Adapting Knowledge Unit (Web UI + autonomous daemon)",
-            "After=network-online.target",
-            "Wants=network-online.target",
-            "",
-            "[Service]",
-            "Type=simple",
-            f"User={user}",
-            f"WorkingDirectory={REPO_ROOT}",
-            "EnvironmentFile=-/etc/saku/saku.env",
-            f"Environment=SAKU_CONFIG={REPO_ROOT / 'config.toml'}",
-            f"ExecStart={python} -m saku.ui",
-            "Restart=on-failure",
-            "RestartSec=5",
-            "TimeoutStopSec=20",
-            *hardening,
-            "",
-            "[Install]",
-            "WantedBy=multi-user.target",
-            "",
-        ]
+    return render_unit_template(
+        user=user,
+        workdir=str(REPO_ROOT),
+        python=sys.executable,
+        memory=str(plan.memory_path),
+        token_dir=str(plan.token_file.parent),
+        git_root=plan.git_root if plan.git_enabled else "",
     )
 
 
