@@ -11,6 +11,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from saku import config as saku_config
 from saku import core as agent
 from saku.agent_loop import run_agent_loop as _run_agent_loop
 
@@ -18,14 +19,29 @@ from saku.agent_loop import run_agent_loop as _run_agent_loop
 SAKU_ROOT = agent.SAKU_ROOT
 
 
-def build_reflection_prompt(target_date: str, journal_content: str, monologue_content: str) -> str:
+def build_reflection_prompt(
+    target_date: str,
+    journal_content: str,
+    monologue_content: str,
+    *,
+    skill_review: bool = False,
+) -> str:
     """Build the reflection user prompt.
 
     The meta.md rule comes from ``agent.meta_update_rule()`` so it always agrees
     with the system prompt and the path policy (it used to be hardcoded here,
     which contradicted the system prompt and let the model overwrite meta.md
     wholesale).
+
+    ``skill_review`` (#104) adds the learned-skills revision task. It is only
+    included while skill learning is enabled, so with the feature off this
+    prompt is byte-identical to what it was before the skill loop existed.
     """
+    skill_task = ""
+    if skill_review:
+        skill_task = f"""
+3. 学習したスキル（skills/ 配下で「> source: task/」から始まる出典を持つファイル）について、今日の日記にその使用・成否・より良い手順が記録されていた場合は、該当ファイルを [[WRITE_FILE path="skills/ファイル名.md"]] で改訂してください。元の「> source:」行は残し、新しい出典はカンマの後に空白を入れずに末尾へ足してください（例: 「> source: task/2026-08-01-1,journal/{target_date}」）。重複したスキルがあれば統合してよいです。日記に該当する記録が無ければ、このタスクは何もしないでください。
+"""
     return f"""[system] 今日一日の活動を振り返り、自己修正と成長を行う時間です。
 以下に、今日の日記（Journal）と独り言（Monologue）を提示します。
 
@@ -42,7 +58,7 @@ def build_reflection_prompt(target_date: str, journal_content: str, monologue_co
    ※ {agent.meta_update_rule()}
    「## 最近の出来事」「## 次にやりたいこと」などの見出し直後にリスト項目を追加する形式で更新し、
    見出し構造（## で始まる行）は絶対に変更・削除しないでください。
-
+{skill_task}
 終了時は「[REFLECTION_DONE]」と出力して回答を終了してください。
 """
 
@@ -67,7 +83,12 @@ def run_reflection(target_date: str = None) -> None:
     # Build prompt
     system_prompt = agent.build_system_prompt()
 
-    user_prompt = build_reflection_prompt(target_date, journal_content, monologue_content)
+    # #104: learned skills are revised here, in reflection, never at
+    # distillation time -- and only while the learning loop is enabled.
+    skill_review = saku_config.load_skills_config(agent._cfg).learning_enabled
+    user_prompt = build_reflection_prompt(
+        target_date, journal_content, monologue_content, skill_review=skill_review
+    )
 
     history = [
         {"role": "system", "content": system_prompt},
