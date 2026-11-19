@@ -148,25 +148,32 @@ def recall(
     scored.sort(key=lambda x: (-x[0], x[1], x[2]))
 
     lines: list[str] = []
+    header = "# 関連する記憶（自動想起）\n"
+    footer = "\n\n必要なら `SEARCH_NOTES` で更に掘り、想起した内容に基づいて答えてください。\n"
+    # #126: the budget covers the header and every entry, including the first
+    # one. It used to be checked only after a line had been added, so a single
+    # long memory entered the prompt unbounded (a 600-char budget produced
+    # 13k characters).
+    budget = max(0, max_chars - len(header) - len(footer))
     seen: set[str] = set()
-    total = 0
     for _score, label, text in scored:
         if text in seen:
             continue
         entry = f"- ({label}) {text}"
-        if lines and total + len(entry) > max_chars:
+        body = "\n".join(lines)
+        room = budget - len(body) - (1 if lines else 0)
+        if room <= 0:
             break
+        if len(entry) > room:
+            if room < 30:
+                break
+            entry = entry[: room - 1] + "…"
         seen.add(text)
         lines.append(entry)
-        total += len(entry)
         if len(lines) >= items:
             break
 
     if not lines:
         return ""
 
-    return (
-        "# 関連する記憶（自動想起）\n"
-        + "\n".join(lines)
-        + "\n\n必要なら `SEARCH_NOTES` で更に掘り、想起した内容に基づいて答えてください。\n"
-    )
+    return header + "\n".join(lines) + footer
