@@ -546,6 +546,27 @@ def load_sort_config(cfg: dict) -> SortConfig:
     )
 
 
+# ── Heartbeat Config (#75) ──────────────────────────────
+# The resident daemon writes a heartbeat file every loop; `saku status` and
+# `saku heartbeat --check` read it. The threshold must sit above one slow LLM
+# call (opencode-go answers in ~270s, #113), otherwise a working daemon looks
+# dead. Set `file = ""` to leave the default in place; disable to stop writing.
+@dataclass
+class HeartbeatConfig:
+    enabled: bool = True
+    file: str = "state/heartbeat.json"
+    max_age_seconds: int = 900  # 15 min: comfortably beyond one slow call
+    notify_on_gap: bool = True  # tell the Owner when the next start finds a gap
+
+
+def load_heartbeat_config(cfg: dict) -> HeartbeatConfig:
+    h = cfg.get("heartbeat", {})
+    return HeartbeatConfig(
+        enabled=bool(h.get("enabled", True)),
+        file=h.get("file", "state/heartbeat.json"),
+        max_age_seconds=int(h.get("max_age_seconds", 900)),
+        notify_on_gap=bool(h.get("notify_on_gap", True)),
+    )
 
 
 # ── Git Sync Config ─────────────────────────────────────
