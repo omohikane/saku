@@ -70,9 +70,13 @@ _MEMORY_ITEM_RE = re.compile(
 # ("<!-- src:journal/2026-08-30 -->") on entries tidy re-rendered without a score.
 _ENTRY_RE = re.compile(
     r"^\s*- (?P<date>\d{4}-\d{2}-\d{2}): (?P<text>.*?)"
-    r"(?:\s*<!--\s*(?:s:(?P<score>\d+)\s+last:(?P<last>\d{4}-\d{2}-\d{2})"
-    r"(?:\s+src:(?P<src>[^\s>]+))?|src:(?P<srconly>[^\s>]+))\s*-->)?\s*$"
+    r"(?:\s*<!--\s*(?P<meta>.*?)\s*-->)?\s*$"
 )
+# Fields inside the metadata comment. Order and unknown keys are irrelevant:
+# the body must survive any future field the writer adds (#125). `src` may
+# also appear alone (entries promoted before scoring existed).
+_META_FIELD_RE = re.compile(r"(?<![\w-])(s|last|src):([^\s>]+)")
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # Category weight for the heuristic importance score (no extra LLM call).
 # Decisions and durable facts outlive preferences and work-in-progress items.
@@ -133,12 +137,15 @@ def parse_entry(line: str) -> dict | None:
     m = _ENTRY_RE.match(line)
     if not m:
         return None
+    fields = {key: value for key, value in _META_FIELD_RE.findall(m.group("meta") or "")}
+    score = fields.get("s", "")
+    last = fields.get("last", "")
     return {
         "date": m.group("date"),
         "text": m.group("text").strip(),
-        "score": int(m.group("score")) if m.group("score") else None,
-        "last": m.group("last"),
-        "src": m.group("src") or m.group("srconly"),
+        "score": int(score) if score.isdigit() else None,
+        "last": last if _ISO_DATE_RE.match(last) else None,
+        "src": fields.get("src") or None,
     }
 
 
