@@ -337,6 +337,14 @@ def load_dreaming_config(cfg: dict) -> DreamingConfig:
 # same insight was re-derived and the same report posted twice within hours
 # (issue #43). The weekly pass reads the last N days at once and asks for trends,
 # intention progress, notes to consolidate, and intentions for the coming week.
+#
+# The same section also carries the evaluation wiring of issue #103:
+# longitudinal snapshots (measure -> evidence) and reflection follow-ups
+# (findings -> tracked tasks). Both default to enabled: they are internal
+# passes in the same family as the weekly review and the dreaming review --
+# they send nothing, move nothing, and only add records inside the memory
+# tree. That is the [mail] / [git] distinction: those default to disabled
+# because they act outside the instance (answering letters, committing).
 @dataclass
 class GrowthConfig:
     weekly_review_enabled: bool = True
@@ -346,6 +354,21 @@ class GrowthConfig:
     weekly_review_path: str = "principles/weekly-{week}.md"  # {week} = ISO week
     weekly_review_max_chars: int = 12000  # context budget for the raw records
     weekly_review_report: bool = True  # post a short report to the Owner channel
+    # Longitudinal growth snapshots (#103): a dated JSON capture of the same
+    # metrics evals/longitudinal/snapshot.py produces manually, taken weekly
+    # by the daemon so the time series actually exists when a stage promotion
+    # is discussed. A digest (digest.md next to the snapshots) renders the
+    # latest deltas plus the open follow-ups as the Owner's evidence package.
+    snapshot_enabled: bool = True
+    snapshot_weekday: str = "sun"  # mon / tue / ... / sun
+    snapshot_hour: int = 3  # local hour after which it may run
+    snapshot_dir: str = "growth"  # relative to the memory root; absolute passes through
+    snapshot_report: bool = True  # post a short notice to the Owner channel
+    # Reflection follow-ups (#103): weaknesses/tasks the nightly reflection
+    # identifies are kept in a structured record (written by code, not journal
+    # prose) and re-presented to the next reflection until they are digested.
+    followups_enabled: bool = True
+    followups_file: str = "state/followups.json"  # relative to the memory root
 
 
 def load_growth_config(cfg: dict) -> GrowthConfig:
@@ -358,7 +381,41 @@ def load_growth_config(cfg: dict) -> GrowthConfig:
         weekly_review_path=g.get("weekly_review_path", "principles/weekly-{week}.md"),
         weekly_review_max_chars=g.get("weekly_review_max_chars", 12000),
         weekly_review_report=g.get("weekly_review_report", True),
+        snapshot_enabled=g.get("snapshot_enabled", True),
+        snapshot_weekday=g.get("snapshot_weekday", "sun"),
+        snapshot_hour=g.get("snapshot_hour", 3),
+        snapshot_dir=g.get("snapshot_dir", "growth"),
+        snapshot_report=g.get("snapshot_report", True),
+        followups_enabled=g.get("followups_enabled", True),
+        followups_file=g.get("followups_file", "state/followups.json"),
     )
+
+
+def resolve_snapshot_dir(cfg: dict, memory_root: Path) -> Path:
+    """Resolve the growth snapshot directory (``[growth] snapshot_dir``).
+
+    Relative paths are resolved against the memory root so the snapshots and
+    the digest live (and git-sync) with the memory they measure; absolute
+    paths pass through.
+    """
+    rel = expand_env(cfg.get("growth", {}).get("snapshot_dir", "growth"))
+    p = Path(rel)
+    if p.is_absolute():
+        return p.resolve()
+    return (memory_root / p).resolve()
+
+
+def resolve_followups_file(cfg: dict, memory_root: Path) -> Path:
+    """Resolve the reflection follow-ups record (``[growth] followups_file``).
+
+    Relative paths are resolved against the memory root, next to the other
+    daemon-maintained state files (chat_state.json, schedule.json).
+    """
+    rel = expand_env(cfg.get("growth", {}).get("followups_file", "state/followups.json"))
+    p = Path(rel)
+    if p.is_absolute():
+        return p.resolve()
+    return (memory_root / p).resolve()
 
 
 # ── Output Guard Config (degenerate LLM output) ─────────
