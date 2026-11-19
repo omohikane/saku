@@ -76,11 +76,21 @@ def _clean_line(line: str) -> str:
     return text
 
 
-def iter_memory_lines(memory_root: Path, sources: list[str]):
-    """Yield ``(label, text)`` for the meaningful lines of the configured sources.
+def iter_memory_items(
+    memory_root: Path,
+    sources: list[str],
+    *,
+    archive_section: str = "Archive",
+):
+    """Yield ``{label, text, status}`` for the meaningful lines of the sources.
 
     ``sources`` entries are paths relative to the memory root: a file or a directory
     (scanned recursively for markdown).
+
+    ``status`` is ``archived`` for lines under ``## <archive_section>`` in
+    ``MEMORY.md`` and ``active`` otherwise (#128). Decay moves stale entries
+    there; without this, an expired preference came back as current knowledge.
+    Other files have no archive semantics, so their sections stay ``active``.
     """
     for rel in sources:
         p = memory_root / rel
@@ -101,18 +111,36 @@ def iter_memory_lines(memory_root: Path, sources: list[str]):
             except Exception:
                 continue
             label = f.relative_to(memory_root).as_posix()
+            has_archive = f.name == "MEMORY.md"
+            status = "active"
             for line in content.splitlines():
+                if has_archive and line.startswith("## "):
+                    status = (
+                        "archived"
+                        if line[3:].strip() == archive_section
+                        else "active"
+                    )
+                    continue
                 text = _clean_line(line)
-                if len(text) >= 4:
-                    # Provenance (#79) is stripped with the other metadata by
-                    # _clean_line; surface it explicitly so a recalled memory
-                    # can be weighed by its origin. Display only -- recall
-                    # scoring is unchanged. Legacy entries have no src and
-                    # surface exactly as before.
-                    src = provenance.extract_src(line)
-                    if src:
-                        text = f"{text}（出典: {src}）"
-                    yield label, text
+                if len(text) < 4:
+                    continue
+                # Provenance (#79) is stripped with the other metadata by
+                # _clean_line; surface it explicitly so a recalled memory can
+                # be weighed by its origin. Display only -- scoring is
+                # unchanged. Legacy entries have no src and surface as before.
+                src = provenance.extract_src(line)
+                if src:
+                    text = f"{text}（出典: {src}）"
+                yield {"label": label, "text": text, "status": status}
+
+
+def iter_memory_lines(memory_root: Path, sources: list[str]):
+    """Yield ``(label, text)``; compatibility wrapper over iter_memory_items."""
+    for item in iter_memory_items(memory_root, sources):
+        yield item["label"], item["text"]
+
+
+_PAST_QUERY_RE = re.compile(r"過去|以前|昔|かつて|前は|前に|old|archiv", re.IGNORECASE)
 
 
 def recall(
@@ -122,6 +150,7 @@ def recall(
     items: int = DEFAULT_ITEMS,
     max_chars: int = DEFAULT_MAX_CHARS,
     sources: list[str] | None = None,
+    archive_section: str = "Archive",
 ) -> str:
     """Return a compact "related memory" block for ``message``, or "" when nothing matches.
 
@@ -133,13 +162,21 @@ def recall(
         return ""
 
     srcs = list(sources) if sources else list(DEFAULT_SOURCES)
+    # #128: archived entries answer "what was it before?", not "what is it now".
+    wants_past = bool(_PAST_QUERY_RE.search(message))
     scored: list[tuple[int, str, str]] = []
-    for label, text in iter_memory_lines(memory_root, srcs):
+    for item in iter_memory_items(memory_root, srcs, archive_section=archive_section):
+        label, text = item["label"], item["text"]
         low = text.lower()
         hits = [t for t in query if t in low]
         if not hits:
             continue
         score = sum(len(h) for h in hits) + len(hits)
+        if item["status"] == "archived":
+            if not wants_past:
+                continue
+            text = f"{text}（過去）"
+            score -= 1  # active knowledge still ranks first
         scored.append((score, label, text))
 
     if not scored:
