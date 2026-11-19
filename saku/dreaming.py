@@ -21,6 +21,7 @@ Provenance is written once, at promotion; reinforcement never rewrites it.
 
 import re
 import sys
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -58,6 +59,10 @@ dreaming が journal/monologue から重要な記憶を昇格させた場所。
 ## 方針・決定
 
 """
+
+# Bumped whenever the extraction prompt or its output contract changes, so
+# callers that cache results can reprocess their inputs (#129).
+EXTRACTOR_VERSION = 1
 
 _MEMORY_ITEM_RE = re.compile(
     r"\[MEMORY\]\s*category:\s*(.+?)\s*content:\s*(.+?)\s*\[/MEMORY\]",
@@ -266,7 +271,7 @@ content: 一行で簡潔に（日付は書かない。日付は自動で付与�
 
 複数あるなら複数出力。無ければ [NO_MEMORY] とだけ出力。
 """
-    return _run_extraction(user_prompt)
+    return _run_extraction(user_prompt).items
 
 
 def extract_items_from_text(
@@ -278,12 +283,26 @@ def extract_items_from_text(
 ) -> list[tuple[str, str]]:
     """Extract durable memory items from an Owner record (issue #68).
 
-    ``saku learn`` uses this for daily notes; dreaming keeps its own
-    two-record prompt above. The output shape, category vocabulary and parsing
-    are shared, so ``append_items`` stores both identically.
+    List form for callers that only need the items. ``saku learn`` uses
+    :func:`extract_items_from_text_result` to tell "nothing durable" from a
+    failed call (#129).
+    """
+    return extract_items_from_text_result(
+        text, date=date, kind=kind, llm_cfg=llm_cfg
+    ).items
 
-    Returns ``(category, content)`` pairs. An empty list means either "nothing
-    durable here" or a failed call -- the caller decides whether that matters.
+
+def extract_items_from_text_result(
+    text: str,
+    *,
+    date: str,
+    kind: str = "daily",
+    llm_cfg=None,
+) -> Extraction:
+    """Same call as :func:`extract_items_from_text`, with the outcome status.
+
+    ``saku learn`` needs to tell "nothing durable here" from "the call failed"
+    (#129); everything else keeps using the list form.
     """
     label = {"daily": "Ownerのデイリーノート", "journal": "日記"}.get(kind, "記録")
     user_prompt = f"""[system] {label}から、長期的に残す価値のある記憶を抽出してください。
@@ -306,6 +325,7 @@ def extract_items_from_text(
 
 書き方:
 - content は 1 行 60 文字以内。具体的な固有名詞より傾向・基準を書く
+- 既存ノートの内容を繰り返さない（新しい情報だけを書く）
 - 迷ったら書かない（無理に絞り出さない）
 
 出力形式（ツールは使わない。この形式のみ出力。※必ず単括弧を使うこと）:
@@ -319,7 +339,23 @@ content: 一行で簡潔に（日付は書かない。日付は自動で付与�
     return _run_extraction(user_prompt, llm_cfg=llm_cfg)
 
 
-def _run_extraction(user_prompt: str, *, llm_cfg=None) -> list[tuple[str, str]]:
+@dataclass
+class Extraction:
+    """Outcome of one extraction call (#129).
+
+    ``status`` is ``ok`` (items found), ``empty`` (a valid reply with nothing
+    durable, e.g. ``[NO_MEMORY]``) or ``error`` (the call failed). Callers that
+    cache results must treat ``empty`` as done and ``error`` as retryable --
+    returning a bare ``[]`` for both made a quiet model look like a broken one.
+    """
+
+    status: str
+    items: list[tuple[str, str]] = field(default_factory=list)
+    raw: str = ""
+    error: str = ""
+
+
+def _run_extraction(user_prompt: str, *, llm_cfg=None) -> Extraction:
     """Run one tools-disabled extraction call and parse its ``[MEMORY]`` blocks.
 
     This deliberately calls the LLM client directly instead of going through
@@ -340,7 +376,7 @@ def _run_extraction(user_prompt: str, *, llm_cfg=None) -> list[tuple[str, str]]:
         on_token=lambda _t: None,
     )
     if not raw or raw.startswith("[ERROR]"):
-        return []
+        return Extraction(status="error", raw=raw or "", error=(raw or "empty reply")[:300])
 
     items = []
     for m in _MEMORY_ITEM_RE.finditer(raw):
@@ -348,7 +384,7 @@ def _run_extraction(user_prompt: str, *, llm_cfg=None) -> list[tuple[str, str]]:
         content = m.group(2).strip()
         if category in MEMORY_SECTIONS and content:
             items.append((category, content))
-    return items
+    return Extraction(status="ok" if items else "empty", items=items, raw=raw)
 
 
 def _insert_after_heading(content: str, heading: str, entry: str) -> str:
