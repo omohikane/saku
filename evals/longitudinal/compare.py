@@ -5,44 +5,20 @@ Usage: python evals/longitudinal/compare.py snapshot_before.json snapshot_after.
 
 Reports deltas for memory size, per-section item counts, and file counts, so you
 can see whether SAKU is growing (and what grew) between two points in time.
+
+The comparison logic lives in ``saku.growth`` (issue #103), shared with the
+weekly growth digest the daemon maintains; this script is the manual route.
 """
 
 import json
 import sys
 from pathlib import Path
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
-def _flatten_sections(sections: dict[str, int]) -> dict[str, int]:
-    return {f"{k} ({v} items)": v for k, v in sections.items()}
-
-
-def compare(before: dict, after: dict) -> list[str]:
-    lines: list[str] = []
-    b, a = before, after
-    lines.append(f"captured: {b.get('captured_at')} -> {a.get('captured_at')}")
-    lines.append("")
-
-    # memory / meta size
-    for key, label in (("memory", "MEMORY.md"), ("meta", "meta.md")):
-        db = b.get(key, {}).get("chars", 0)
-        da = a.get(key, {}).get("chars", 0)
-        lines.append(f"{label}: {db} -> {da} chars ({da - db:+d})")
-        # per-section item deltas
-        bs = b.get(key, {}).get("items_by_section", {})
-        as_ = a.get(key, {}).get("items_by_section", {})
-        for section in sorted(set(bs) | set(as_)):
-            delta = as_.get(section, 0) - bs.get(section, 0)
-            if delta:
-                lines.append(f"  {section}: {bs.get(section, 0)} -> {as_.get(section, 0)} ({delta:+d})")
-    lines.append("")
-
-    # file counts
-    bf, af = b.get("files", {}), a.get("files", {})
-    for key in sorted(set(bf) | set(af)):
-        db, da = bf.get(key, 0), af.get(key, 0)
-        if da != db:
-            lines.append(f"{key}: {db} -> {da} ({da - db:+d})")
-    return lines
+from saku.growth import compare_snapshots as compare  # noqa: E402  (re-exported)
 
 
 def main(argv: list[str] | None = None) -> int:
