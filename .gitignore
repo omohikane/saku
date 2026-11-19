@@ -70,3 +70,6 @@ nohup.out
 # Bootstrap-generated artifacts (absolute paths of this host)
 packaging/generated/
 config.toml.bak-*
+
+# AI coding tool session exports (working logs, not project files)
+session-*.md
