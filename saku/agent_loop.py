@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .config import ContextConfig, DEFAULT_WORKING_BUDGET_TOKENS, LlmConfig
-from .context import needs_compaction, trim_old_tool_results, truncate_history
+from .context import enforce_budget, needs_compaction, trim_old_tool_results, truncate_history
 from .llm import chat_stream
 from .thinking import internal_markers_in, split_thinking, strip_tool_blocks
 from .transport import exec_tools, executable_text, list_tool_calls
@@ -111,7 +111,13 @@ def run_agent_loop(
                 if log:
                     log(f"context compacted: dropped {dropped} chars, history={len(work)} msgs")
 
-        # 3. LLM call
+        # 3. Final budget check (#126): compaction is a heuristic and can still
+        # leave the prompt over budget (keep_recent_tokens > budget, or one huge
+        # message). Count system + request + recall + history and make it fit.
+        work, shaved = enforce_budget(work, budget, ctx)
+        if shaved and log:
+            log(f"context fit to budget: shaved {shaved} chars, history={len(work)} msgs")
+
         _status("thinking")
         stream_status: dict = {}
         raw_reply = chat_stream(
