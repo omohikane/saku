@@ -83,7 +83,7 @@ def test_chat_sse_error():
         import saku.agent_loop as al
 
         original = al.chat_stream
-        al.chat_stream = lambda history, llm_cfg, on_token=None: "[ERROR] llama-server not reachable"
+        al.chat_stream = lambda history, llm_cfg, on_token=None, status=None: "[ERROR] llama-server not reachable"
         try:
             req = urllib.request.Request(
                 f"http://127.0.0.1:{server._test_port}/api/chat",
@@ -112,7 +112,7 @@ def test_chat_sse_status_and_page():
         # The handler journals the exchange; without this the test writes into the
         # Owner's real journal via the configured memory root.
         ui.agent.save_journal = lambda msg, reply, thinking="": saved.append((msg, reply))
-        al.chat_stream = lambda history, llm_cfg, on_token=None: "こんにちは"
+        al.chat_stream = lambda history, llm_cfg, on_token=None, status=None: "こんにちは"
         try:
             req = urllib.request.Request(
                 f"http://127.0.0.1:{server._test_port}/api/chat",

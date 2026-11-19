@@ -51,7 +51,7 @@ def test_prompt_injection_not_promoted():
     )
     # Extraction reads the LLM client directly (#68); patch that seam.
     original = dreaming._chat_stream
-    dreaming._chat_stream = lambda history, llm_cfg, on_token=None: injected
+    dreaming._chat_stream = lambda history, llm_cfg, on_token=None, status=None: injected
     try:
         items = dreaming.extract_items("2026-08-03", "journal", "monologue")
     finally:
@@ -80,7 +80,7 @@ def test_child_cannot_exceed_permissions():
             subagent.spawn_child(root, "badchild", "悪意のある子")
 
             original = al.chat_stream
-            al.chat_stream = lambda history, llm_cfg, on_token=None: (
+            al.chat_stream = lambda history, llm_cfg, on_token=None, status=None: (
                 '[[WRITE_FILE path="meta.md"]]\nclobbered\n[[END]]'
             )
             try:

@@ -185,7 +185,7 @@ def test_thinking_and_examples_never_execute():
             encoding="utf-8",
         )
 
-        def fake_chat_stream(history, llm_cfg, on_token=None):
+        def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
             return (
                 "<think>\n[[PROBE]]\nfrom-think\n[[END]]\n</think>\n"
                 "```\n[[PROBE]]\nfrom-fence\n[[END]]\n```\n"
@@ -221,7 +221,7 @@ def test_allowed_tools_empty_disables_execution():
             encoding="utf-8",
         )
 
-        def fake_chat_stream(history, llm_cfg, on_token=None):
+        def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
             return "[[PROBE]]\nx\n[[END]]"
 
         llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
@@ -252,7 +252,7 @@ def test_unclosed_tool_call_does_not_write():
             encoding="utf-8",
         )
 
-        def fake_chat_stream(history, llm_cfg, on_token=None):
+        def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
             return "[[PROBE]]\nhalf-generated"
 
         llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
@@ -269,10 +269,46 @@ def test_unclosed_tool_call_does_not_write():
         assert not marker.exists(), "an unclosed call from a cut reply was executed"
 
 
+def test_incomplete_stream_does_not_run_tools():
+    """#127: an EOF without [DONE] must not start side effects."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "tools").mkdir()
+        marker = root / "executed.txt"
+        (root / "tools" / "probe.py").write_text(
+            "from pathlib import Path\n"
+            "def run(base, path, body='', **kw):\n"
+            "    Path(base, 'executed.txt').write_text(body)\n"
+            "    return 'ran'\n",
+            encoding="utf-8",
+        )
+
+        def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
+            if status is not None:
+                status["complete"] = False
+                status["error"] = False
+            return "[[PROBE]]\nx\n[[END]]"
+
+        llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
+        original = agent_loop.chat_stream
+        agent_loop.chat_stream = fake_chat_stream
+        logs = []
+        try:
+            agent_loop.run_agent_loop(
+                [{"role": "system", "content": "sys"}, {"role": "user", "content": "go"}],
+                llm, _make_ctx(), root, root, log=logs.append,
+            )
+        finally:
+            agent_loop.chat_stream = original
+
+        assert not marker.exists(), "tools ran on an incomplete stream"
+        assert any("incomplete stream" in msg for msg in logs), logs
+
+
 def test_run_agent_loop_no_tools():
     calls = {"n": 0}
 
-    def fake_chat_stream(history, llm_cfg, on_token=None):
+    def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
         calls["n"] += 1
         return "まっすぐな回答"
 
@@ -301,7 +337,7 @@ def test_run_agent_loop_with_tool_then_answer():
             encoding="utf-8",
         )
 
-        def fake_chat_stream(history, llm_cfg, on_token=None):
+        def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
             has_result = any(
                 m.get("role") == "user" and "[system] tool results:" in str(m.get("content", ""))
                 for m in history
@@ -338,7 +374,7 @@ def test_visible_text_is_not_concatenated_across_turns():
             encoding="utf-8",
         )
 
-        def fake_chat_stream(history, llm_cfg, on_token=None):
+        def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
             has_result = any(
                 m.get("role") == "user" and "[system] tool results:" in str(m.get("content", ""))
                 for m in history
@@ -372,7 +408,7 @@ def test_visible_text_survives_a_final_empty_turn():
             encoding="utf-8",
         )
 
-        def fake_chat_stream(history, llm_cfg, on_token=None):
+        def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
             has_result = any(
                 m.get("role") == "user" and "[system] tool results:" in str(m.get("content", ""))
                 for m in history
@@ -403,7 +439,7 @@ def test_compaction_is_not_announced_when_nothing_is_dropped():
         {"role": "user", "content": "x" * 400} for _ in range(3)
     ]
     original = agent_loop.chat_stream
-    agent_loop.chat_stream = lambda h, c, on_token=None: "回答"
+    agent_loop.chat_stream = lambda h, c, on_token=None, status=None: "回答"
     try:
         agent_loop.run_agent_loop(history, llm, ctx, Path("/tmp"), Path("/tmp"), log=logged.append)
     finally:
@@ -421,7 +457,7 @@ def test_compaction_is_announced_when_history_is_dropped():
         {"role": "user", "content": "あ" * 200} for _ in range(3)
     ]
     original = agent_loop.chat_stream
-    agent_loop.chat_stream = lambda h, c, on_token=None: "回答"
+    agent_loop.chat_stream = lambda h, c, on_token=None, status=None: "回答"
     try:
         agent_loop.run_agent_loop(history, llm, ctx, Path("/tmp"), Path("/tmp"), log=logged.append)
     finally:
@@ -437,7 +473,7 @@ def test_unbacked_write_claims_are_reported():
         root = Path(tmp)
         llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
         original = agent_loop.chat_stream
-        agent_loop.chat_stream = lambda h, c, on_token=None: (
+        agent_loop.chat_stream = lambda h, c, on_token=None, status=None: (
             "`principles/2026-10-16-none.md` に教訓を記録しました。"
         )
         try:
@@ -458,7 +494,7 @@ def test_backed_write_claims_are_not_reported():
         (root / "principles").mkdir()
         llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
 
-        def fake_chat_stream(history, llm_cfg, on_token=None):
+        def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
             # What a successful WRITE_FILE tool call leaves behind.
             (root / "principles" / "2026-10-16-real.md").write_text("- 学び\n", encoding="utf-8")
             return "`principles/2026-10-16-real.md` に記録しました。"
@@ -477,7 +513,7 @@ def test_backed_write_claims_are_not_reported():
 
 
 def test_run_agent_loop_no_action_marker():
-    def fake_chat_stream(history, llm_cfg, on_token=None):
+    def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
         return "[NO_ACTION]"
 
     llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
@@ -497,7 +533,7 @@ def test_run_agent_loop_no_action_marker():
 
 
 def test_run_agent_loop_error_breaks():
-    def fake_chat_stream(history, llm_cfg, on_token=None):
+    def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
         return "[ERROR] llama-server not reachable"
 
     llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
@@ -525,7 +561,7 @@ def test_status_events_report_progress():
             encoding="utf-8",
         )
 
-        def fake_chat_stream(history, llm_cfg, on_token=None):
+        def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
             has_result = any(
                 m.get("role") == "user" and "[system] tool results:" in str(m.get("content", ""))
                 for m in history
@@ -571,7 +607,7 @@ def test_final_answer_rescue_when_all_turns_use_tools():
 
         calls = {"n": 0}
 
-        def fake_chat_stream(history, llm_cfg, on_token=None):
+        def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
             calls["n"] += 1
             # The rescue call carries the "no more tools" instruction
             last = str(history[-1].get("content", ""))
@@ -595,7 +631,7 @@ def test_final_answer_rescue_when_all_turns_use_tools():
 
 
 def test_no_rescue_when_visible_answer_exists():
-    def fake_chat_stream(history, llm_cfg, on_token=None):
+    def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
         return "普通の回答"
 
     llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
