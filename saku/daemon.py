@@ -1361,7 +1361,7 @@ def _daemon_run():
         try:
             time.sleep(CHAT_POLL_SECONDS)
             now = time.time()
-            _beat(interval)
+            _beat(CHAT_POLL_SECONDS)
 
             # 0. Kill switch (#76): notice engage/release edges once. The
             # gates themselves stat the flag at action time; this is only
