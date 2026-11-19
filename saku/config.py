@@ -125,6 +125,10 @@ class LlmConfig:
     working_budget_tokens: int = 0  # 0 = unknown (the agent's working budget)
     reasoning_effort: str = ""  # "" = omit; e.g. "none" for reasoning models (Strata)
     stop_tokens: list[str] | None = None  # None = use llm.STOP_TOKENS (engines may cap the count)
+    # Extra request headers for gateways that route or identify by header
+    # (e.g. opencode-go requires ``x-opencode-session``). Authorization is
+    # built from api_key and cannot be overridden here.
+    headers: dict[str, str] = field(default_factory=dict)
 
     @property
     def is_configured(self) -> bool:
@@ -158,6 +162,7 @@ def load_profile(cfg: dict, name: str) -> "LlmConfig | None":
         working_budget_tokens=prof.get("working_budget_tokens", 0),
         reasoning_effort=prof.get("reasoning_effort", ""),
         stop_tokens=prof.get("stop_tokens"),
+        headers={str(k): str(v) for k, v in (prof.get("headers", {}) or {}).items()},
     )
 
 
@@ -211,7 +216,7 @@ def load_llm_instance(cfg: dict, name: str = "main") -> LlmConfig:
         llm = load_active_llm(cfg)
 
     for key in ("api_url", "api_key", "model", "context_window", "working_budget_tokens",
-                "reasoning_effort", "stop_tokens"):
+                "reasoning_effort", "stop_tokens", "headers"):
         if inst.get(key):
             setattr(llm, key, inst[key])
     llm.name = name

@@ -37,6 +37,7 @@ def _capture(llm_cfg):
     def _fake_post(url, json=None, headers=None, stream=None, timeout=None):
         captured["url"] = url
         captured["payload"] = json
+        captured["headers"] = headers or {}
         return _FakeResponse()
 
     original = llm_mod.requests.post
@@ -92,6 +93,54 @@ def test_load_profile_reads_reasoning_effort():
     assert prof.reasoning_effort == "none"
     plain = cfg_mod.load_profile({"llm": {"profiles": {"x": {"api_url": "u"}}}}, "x")
     assert plain.reasoning_effort == ""
+
+
+def test_profile_headers_are_sent():
+    captured, _ = _capture(
+        LlmConfig(
+            name="opencode-ds",
+            api_url="http://x",
+            api_key="sk-test",
+            headers={"x-opencode-session": "saku-console"},
+        )
+    )
+    assert captured["headers"]["x-opencode-session"] == "saku-console"
+    assert captured["headers"]["Authorization"] == "Bearer sk-test"
+
+
+def test_profile_headers_cannot_override_authorization():
+    captured, _ = _capture(
+        LlmConfig(
+            name="x",
+            api_url="http://x",
+            api_key="sk-test",
+            headers={"authorization": "Bearer hijacked"},
+        )
+    )
+    assert captured["headers"]["Authorization"] == "Bearer sk-test"
+
+
+def test_no_profile_headers_sent_by_default():
+    captured, _ = _capture(LlmConfig(name="local", api_url="http://x"))
+    assert captured["headers"] == {}
+
+
+def test_load_profile_reads_headers():
+    cfg = {
+        "llm": {
+            "profiles": {
+                "gateway": {
+                    "api_url": "http://x",
+                    "headers": {"x-opencode-session": "saku-console"},
+                }
+            }
+        }
+    }
+    assert cfg_mod.load_profile(cfg, "gateway").headers == {
+        "x-opencode-session": "saku-console"
+    }
+    plain = cfg_mod.load_profile({"llm": {"profiles": {"y": {"api_url": "u"}}}}, "y")
+    assert plain.headers == {}
 
 
 def test_load_profile_expands_api_key_from_env():
