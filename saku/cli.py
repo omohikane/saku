@@ -7,6 +7,8 @@
     saku stop     engage the kill switch (stop autonomous operation)
     saku resume   release the kill switch
     saku tidy     deterministic cleanup of MEMORY.md / wiki (dry-run default)
+    saku sort     classify Clippings into existing reference folders (proposal first)
+    saku do       run a known command from a natural-language request
     saku sync     commit/push the memory repository now ([git] sync)
     saku bootstrap  guided setup (memory / bind / auth / systemd or docker)
     saku setup    initialize the memory/vault structure
@@ -91,7 +93,17 @@ def main(argv: list[str] | None = None) -> int:
 
         return tidy_main(args[1:])
 
-    print("Usage: saku [chat|daemon|ui|status|tidy|sync|setup|bootstrap|dream|mcp|stop|resume]")
+    if cmd == "sort":
+        from saku.sort import main as sort_main
+
+        return sort_main(args[1:])
+
+    if cmd in ("do", "route"):
+        from saku.do import main as do_main
+
+        return do_main(args[1:])
+
+    print("Usage: saku [chat|daemon|ui|status|tidy|sort|do|sync|setup|bootstrap|dream|mcp|stop|resume]")
     return 0
 
 

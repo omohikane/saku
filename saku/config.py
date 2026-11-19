@@ -517,6 +517,37 @@ def load_skills_config(cfg: dict) -> SkillsConfig:
     )
 
 
+# ── Clipping Sort Config (#72) ──────────────────────────
+# `saku sort` classifies the Owner's Clippings into the reference folders that
+# already exist. Proposing and applying are separate steps: the first run only
+# writes a proposal under state/sort/, and --apply consumes it. The directories
+# are configurable because the vault layout is the Owner's, not SAKU's.
+@dataclass
+class SortConfig:
+    vault_root: str = ""  # "" = the vault that owns the memory root
+    source_dir: str = "Clippings"  # relative to vault_root unless absolute
+    target_dir: str = "02_Reference"  # existing folders under here are the choices
+    review_below: float = 0.7  # lower confidence stays where it is
+    max_files: int = 40  # per proposal
+    max_chars: int = 800  # excerpt per file sent to the model
+    allow_agent_apply: bool = False  # [[SORT_NOTES apply="true"]] needs this
+
+
+def load_sort_config(cfg: dict) -> SortConfig:
+    s = cfg.get("sort", {})
+    return SortConfig(
+        vault_root=s.get("vault_root", ""),
+        source_dir=s.get("source_dir", "Clippings"),
+        target_dir=s.get("target_dir", "02_Reference"),
+        review_below=float(s.get("review_below", 0.7)),
+        max_files=int(s.get("max_files", 40)),
+        max_chars=int(s.get("max_chars", 800)),
+        allow_agent_apply=bool(s.get("allow_agent_apply", False)),
+    )
+
+
+
+
 # ── Git Sync Config ─────────────────────────────────────
 # SAKU's memory can live inside a git repository (e.g. an Obsidian vault). When
 # enabled, writes are committed and pushed on a debounce so the vault stays in
