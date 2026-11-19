@@ -388,12 +388,17 @@ def load_guard_config(cfg: dict) -> GuardConfig:
 # ── Recall Config (memory prefetch for the light prompt) ──
 # The light prompt omits MEMORY/principles/wiki and relies on SEARCH_NOTES, which
 # the model often skips. A small prefetch keeps continuity without the full prompt.
+# skills/ is a default source (#104): it is distilled durable memory like
+# principles/, and keyword-matched surfacing is how a learned procedure finds
+# the next similar task. Override `sources` in [recall] to change this.
 @dataclass
 class RecallConfig:
     enabled: bool = True
     items: int = 3  # how many memory lines to inject at most
     max_chars: int = 600  # character budget for the injected block
-    sources: list[str] = field(default_factory=lambda: ["MEMORY.md", "principles/", "wiki/"])
+    sources: list[str] = field(
+        default_factory=lambda: ["MEMORY.md", "principles/", "skills/", "wiki/"]
+    )
 
 
 def load_recall_config(cfg: dict) -> RecallConfig:
@@ -402,7 +407,35 @@ def load_recall_config(cfg: dict) -> RecallConfig:
         enabled=r.get("enabled", True),
         items=r.get("items", 3),
         max_chars=r.get("max_chars", 600),
-        sources=list(r.get("sources", ["MEMORY.md", "principles/", "wiki/"])),
+        sources=list(r.get("sources", ["MEMORY.md", "principles/", "skills/", "wiki/"])),
+    )
+
+
+# ── Skill Learning Config (#104) ────────────────────────
+# When a scheduled task completes successfully, the procedure SAKU used can be
+# distilled into a reusable skill file under skills/ (the "Acquired Skills"
+# store the full prompt already loads, and a default recall source). The
+# distillation is SAKU's own summary of its own work, produced by a
+# tools-disabled LLM call, and carries #79 provenance naming the task it came
+# from. See saku/skills.py for the loop itself.
+#
+# Disabled by default on purpose: the loop writes new durable memory files and
+# changes what later prompts contain, so merging it must not change the
+# behaviour of a running instance (the same rule as [mail]). Opt in explicitly
+# with `[skills] learning_enabled = true`.
+@dataclass
+class SkillsConfig:
+    learning_enabled: bool = False  # distill completed scheduled tasks into skills/
+    max_chars: int = 3000  # cap on one distilled skill file's body
+    max_result_chars: int = 3000  # cap on the completion report fed to the distillation prompt
+
+
+def load_skills_config(cfg: dict) -> SkillsConfig:
+    s = cfg.get("skills", {})
+    return SkillsConfig(
+        learning_enabled=s.get("learning_enabled", False),
+        max_chars=s.get("max_chars", 3000),
+        max_result_chars=s.get("max_result_chars", 3000),
     )
 
 
