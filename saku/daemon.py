@@ -30,6 +30,7 @@ from pathlib import Path
 
 from saku import core as agent
 from saku import dreaming
+from saku import growth
 from saku import killswitch
 from saku import mail as saku_mail
 from saku import provenance
@@ -834,6 +835,52 @@ def check_and_run_weekly_review(now: datetime | None = None) -> None:
         notify_webui(f"週次レビュー: {summary}")
 
 
+# ── Growth snapshot (longitudinal evaluation, #103) ──────
+def check_and_run_growth_snapshot(now: datetime | None = None) -> None:
+    """Take the weekly growth snapshot once a week (default: Sunday, after 03:00).
+
+    The instruments in evals/longitudinal/ existed but nothing ran them, so
+    there was no time series to base a stage-promotion decision on (#103).
+    This is a pure measurement pass -- no LLM -- and it refreshes the Owner's
+    evidence digest (growth/digest.md). Weekday, hour and reporting are
+    configurable via [growth]; ``now`` is injectable for tests.
+    """
+    now = now or datetime.now()
+    gcfg = agent.saku_config.load_growth_config(agent._cfg)
+    if not gcfg.snapshot_enabled:
+        return
+    if WEEKDAYS[now.weekday()] != gcfg.snapshot_weekday.lower()[:3]:
+        return
+    if now.hour < gcfg.snapshot_hour:
+        return
+
+    state = load_chat_state()
+    today_str = now.strftime("%Y-%m-%d")
+    if state.get("last_growth_snapshot_date", "") == today_str:
+        return
+
+    # Kill switch (#76): skip without recording the run date (see reflection).
+    if killswitch_stopped():
+        print("[*] Growth snapshot skipped: kill switch engaged.")
+        return
+
+    print(f"[*] Growth snapshot triggered at {now.strftime('%Y-%m-%d %H:%M')}...")
+    try:
+        result = growth.run_growth_snapshot(now)
+    except Exception as e:
+        print(f"[!] Growth snapshot failed: {e}")
+        return
+
+    state["last_growth_snapshot_date"] = today_str
+    save_chat_state(state)
+
+    if gcfg.snapshot_report:
+        notify_webui(
+            f"成長スナップショット: {result['path']} に保存しました。"
+            f"差分と未消化フォローアップ（{result['open_followups']}件）は {result['digest_path']} にあります。"
+        )
+
+
 # ── Dreaming: promote durable memories into MEMORY.md ─────────
 def check_and_run_dreaming() -> None:
     """Run dreaming once per day (digests YESTERDAY's journal/monologue)."""
@@ -1239,6 +1286,7 @@ def _daemon_run():
     check_and_run_midnight_reflection()
     check_and_run_dreaming()
     check_and_run_weekly_review()
+    check_and_run_growth_snapshot()
     check_scheduled_tasks()
     last_schedule_check = now_ts
     check_mail()
@@ -1268,6 +1316,9 @@ def _daemon_run():
 
             # 3c. Weekly review: trends across days (once per week)
             check_and_run_weekly_review()
+
+            # 3c2. Growth snapshot: the weekly measurement for #103 (no LLM)
+            check_and_run_growth_snapshot()
 
             # 3d. Scheduled tasks (chat-driven, every 60s)
             if now - last_schedule_check >= 60:

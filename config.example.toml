@@ -231,6 +231,21 @@ auto_initiate_cooldown_seconds = 28800 # SAKU self-initiates every 8 hours
 # weekly_review_path = "principles/weekly-{week}.md"  # 出力先（{week} = ISO週）
 # weekly_review_max_chars = 12000         # 対象記録に使う文字数の上限
 # weekly_review_report = true             # 結果を Owner チャンネルへ報告する
+# --- 成長スナップショットと reflection フォローアップ（#103）---
+# 評価の器（evals/longitudinal/）はあっても誰も回しておらず、段階昇格の根拠になる
+# 時系列が存在しませんでした。週1回、daemon がスナップショットを自動取得し、
+# 差分・未消化フォローアップ・フェーズを digest.md にまとめます（昇格の判断自体は
+# Owner）。また深夜振り返りが見つけた弱点・課題は、journal の散文ではなく
+# followups_file の構造化記録に残し、翌日以降の振り返りが消化を確認します。
+# どちらも内部の記録だけで、外に何も送らず何も動かさないため既定は有効です
+# （手紙に返信する [mail] や commit する [git] とは違います）。
+# snapshot_enabled = true                 # 週次の成長スナップショットを有効にする
+# snapshot_weekday = "sun"                # 実行する曜日
+# snapshot_hour = 3                       # この時刻以降に実行
+# snapshot_dir = "growth"                 # 保存先（memory root 基準。snapshots/ と digest.md）
+# snapshot_report = true                  # 取得を Owner チャンネルへ通知する
+# followups_enabled = true                # reflection のフォローアップ記録を有効にする
+# followups_file = "state/followups.json" # 課題記録の場所（memory root 基準）
 
 # [guard] - 出力ガード（退化した出力を記録に残さない / #41）
 # ローカル LLM が反復ループに落ち、同じブロックを何度も出力することがあります。

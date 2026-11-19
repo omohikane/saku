@@ -19,6 +19,12 @@ uv run python evals/longitudinal/compare.py \
   evals/longitudinal/snapshots/2026-08-10.json
 ```
 
+> **自動実行（#103）**: daemon が週1回（既定: 日曜 03:00 以降、`[growth]` で変更可）、
+> 同じ形式のスナップショットを memory 配下の `growth/snapshots/` に自動取得し、
+> 前回との差分・未消化フォローアップ・フェーズを `growth/digest.md` にまとめます。
+> 取得と比較の実装は `saku/growth.py` に一本化され、このディレクトリのスクリプトは
+> 手動実行用として同じ実装を使います（形式が食い違うと比較できなくなるため）。
+
 ## 何を測るか
 
 | 指標 | 何を意味するか |
