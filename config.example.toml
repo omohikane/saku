@@ -38,6 +38,11 @@ model = ""
 # エンジンによっては stop 文字列の数に上限がある（例: 最大4件）。その場合は
 # プロファイルで上書きする（未指定なら llm.STOP_TOKENS の既定リスト）:
 # stop_tokens = ["Owner:", "Owner>", "**Owner**"]
+#
+# ゲートウェイがヘッダで経路やセッションを決める場合は、プロファイルに追加する
+# （例: opencode-go は x-opencode-session が必須）:
+# headers = { "x-opencode-session" = "saku" }
+# Authorization は api_key から組み立てるので、ここでは上書きできない。
 
 # LLM instances - 複数ローカルサーバを名前付きで使い分ける（Phase A: 定義のみ / Phase C以降で本格利用）
 # インスタンスはプロファイルを参照し、必要に応じて上書きできる。

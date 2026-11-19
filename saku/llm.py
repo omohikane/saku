@@ -42,8 +42,9 @@ def chat_stream(
         # reasoning_content unless reasoning is disabled; "none" gives plain content.
         payload["reasoning_effort"] = llm_cfg.reasoning_effort
 
-    headers = {}
+    headers = {str(k): str(v) for k, v in (llm_cfg.headers or {}).items()}
     if llm_cfg.api_key:
+        # Set last: a profile header must not be able to replace the credential.
         headers["Authorization"] = f"Bearer {llm_cfg.api_key}"
 
     try:
