@@ -7,6 +7,10 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 
 ## [Unreleased]
 
+### Fixed
+
+- LLM profiles can carry extra request headers (`headers = { "x-opencode-session" = "..." }` in a `[llm.profiles.*]` section), which gateways such as opencode-go require to route or identify a session. `Authorization` is still built from `api_key` and cannot be overridden by a profile header. (#112)
+
 ### Added
 
 - Dual-stack listening for the Web UI and the MCP server: `[ui] host` / `[mcp.server] bind` may be `"::"`, and the MCP SDK no longer assumes a localhost-only deployment (it answered 421 to any other Host header). cloudflared dials the origin over `[::1]`, which an IPv4-only bind cannot answer.
