@@ -21,7 +21,7 @@ from .config import ContextConfig, DEFAULT_WORKING_BUDGET_TOKENS, LlmConfig
 from .context import needs_compaction, trim_old_tool_results, truncate_history
 from .llm import chat_stream
 from .thinking import internal_markers_in, split_thinking, strip_tool_blocks
-from .transport import exec_tools, list_tool_calls
+from .transport import exec_tools, executable_text, list_tool_calls
 from .verify import unbacked_writes
 
 
@@ -51,6 +51,7 @@ def run_agent_loop(
     no_action_markers: Optional[list[str]] = None,
     log: Optional[Callable[[str], None]] = None,
     should_stop: Optional[Callable[[], bool]] = None,
+    allowed_tools: Optional[set[str]] = None,
 ) -> LoopResult:
     """Run the common agent loop once.
 
@@ -66,6 +67,10 @@ def run_agent_loop(
     True the loop halts without another LLM call, so an external stop
     signal (the kill switch) takes effect at the next turn boundary
     instead of only when the whole run finishes. Silent when not given.
+
+    ``allowed_tools`` (#123) is a code-level gate: when given, only those
+    names may run and every other call is refused. ``set()`` therefore means
+    "tools disabled" regardless of what the model emits.
     """
     budget = llm_cfg.working_budget_tokens or DEFAULT_WORKING_BUDGET_TOKENS
     started_at = time.time()
@@ -137,11 +142,17 @@ def run_agent_loop(
         # (which would make the model repeat the same tool calls).
         work.append({"role": "assistant", "content": clean_visible or visible})
 
-        # 5. Execute tools
-        tool_names = list_tool_calls(raw_reply)
+        # 5. Execute tools. Only the visible prose is eligible: thinking blocks
+        # were removed by split_thinking, and executable_text() drops fenced
+        # code, inline code and quotes, so a documented or pondered tool call
+        # never runs (#123).
+        executable = executable_text(visible)
+        tool_names = list_tool_calls(executable)
         if tool_names:
             _status("tool: " + ", ".join(tool_names))
-        tool_results = exec_tools(raw_reply, memory_root, code_root)
+        tool_results = exec_tools(
+            executable, memory_root, code_root, allowed_tools=allowed_tools
+        )
         if not tool_results:
             break
         action_taken = True

@@ -86,10 +86,11 @@ def test_exec_tools_unknown_and_fake():
         assert "[ECHO] echo:hello" in res[0], res
         res2 = transport.exec_tools("[[NOPE]]\nx\n[[END]]", root, root)
         assert "unknown tool" in res2[0], res2
-        # unclosed tool is auto-closed and executed (no "not closed" error loop)
+        # #123: an unclosed tool call is not executed (a cut stream must not
+        # cause side effects); the error goes back to history instead.
         res3 = transport.exec_tools("[[ECHO]]\nhello\n", root, root)
-        assert "[ECHO] echo:hello" in res3[0], res3
-        assert not any("not closed" in r for r in res3), res3
+        assert res3 and "not closed" in res3[0], res3
+        assert "[ECHO] echo:hello" not in "".join(res3), res3
 
 
 def test_single_bracket_tool_call_is_executed():
@@ -154,6 +155,118 @@ def test_recall_block_is_stripped_but_normal_text_survives():
 def test_internal_markers_are_reported():
     assert thinking.internal_markers_in("[system] 何か") != []
     assert thinking.internal_markers_in("普通の返事です。") == []
+
+
+def test_executable_text_drops_examples_and_quotes():
+    text = (
+        "説明します。\n\n```\n[[WRITE_FILE path=\"a.md\"]]\nx\n[[END]]\n```\n\n"
+        "インラインは `[[DELETE_FILE path=\"b.md\"]]` です。\n"
+        "> 引用された [[APPEND_FILE path=\"c.md\"]]\n"
+        "[[ECHO]]\nreal\n[[END]]\n"
+    )
+    out = transport.executable_text(text)
+    assert "WRITE_FILE" not in out
+    assert "DELETE_FILE" not in out
+    assert "APPEND_FILE" not in out
+    assert "[[ECHO]]" in out
+
+
+def test_thinking_and_examples_never_execute():
+    """#123: tool syntax in a think block, a fence or a quote must not run."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "tools").mkdir()
+        marker = root / "executed.txt"
+        (root / "tools" / "probe.py").write_text(
+            "from pathlib import Path\n"
+            "def run(base, path, body='', **kw):\n"
+            "    Path(base, 'executed.txt').write_text(body)\n"
+            "    return 'ran'\n",
+            encoding="utf-8",
+        )
+
+        def fake_chat_stream(history, llm_cfg, on_token=None):
+            return (
+                "<think>\n[[PROBE]]\nfrom-think\n[[END]]\n</think>\n"
+                "```\n[[PROBE]]\nfrom-fence\n[[END]]\n```\n"
+                "> [[PROBE]]\n> from-quote\n> [[END]]\n"
+                "以上です。"
+            )
+
+        llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
+        original = agent_loop.chat_stream
+        agent_loop.chat_stream = fake_chat_stream
+        try:
+            result = agent_loop.run_agent_loop(
+                [{"role": "system", "content": "sys"}, {"role": "user", "content": "go"}],
+                llm, _make_ctx(), root, root,
+            )
+        finally:
+            agent_loop.chat_stream = original
+
+        assert not marker.exists(), "a non-actionable mention executed a tool"
+        assert "以上です。" in result.visible
+
+
+def test_allowed_tools_empty_disables_execution():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "tools").mkdir()
+        marker = root / "executed.txt"
+        (root / "tools" / "probe.py").write_text(
+            "from pathlib import Path\n"
+            "def run(base, path, body='', **kw):\n"
+            "    Path(base, 'executed.txt').write_text(body)\n"
+            "    return 'ran'\n",
+            encoding="utf-8",
+        )
+
+        def fake_chat_stream(history, llm_cfg, on_token=None):
+            return "[[PROBE]]\nx\n[[END]]"
+
+        llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
+        original = agent_loop.chat_stream
+        agent_loop.chat_stream = fake_chat_stream
+        try:
+            result = agent_loop.run_agent_loop(
+                [{"role": "system", "content": "sys"}, {"role": "user", "content": "go"}],
+                llm, _make_ctx(), root, root, allowed_tools=set(),
+            )
+        finally:
+            agent_loop.chat_stream = original
+
+        assert not marker.exists(), "tools-disabled still executed a tool"
+        assert "not allowed" in result.history[-2]["content"]
+
+
+def test_unclosed_tool_call_does_not_write():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "tools").mkdir()
+        marker = root / "executed.txt"
+        (root / "tools" / "probe.py").write_text(
+            "from pathlib import Path\n"
+            "def run(base, path, body='', **kw):\n"
+            "    Path(base, 'executed.txt').write_text(body)\n"
+            "    return 'ran'\n",
+            encoding="utf-8",
+        )
+
+        def fake_chat_stream(history, llm_cfg, on_token=None):
+            return "[[PROBE]]\nhalf-generated"
+
+        llm = LlmConfig(name="mock", api_url="http://x", working_budget_tokens=100000)
+        original = agent_loop.chat_stream
+        agent_loop.chat_stream = fake_chat_stream
+        try:
+            agent_loop.run_agent_loop(
+                [{"role": "system", "content": "sys"}, {"role": "user", "content": "go"}],
+                llm, _make_ctx(), root, root,
+            )
+        finally:
+            agent_loop.chat_stream = original
+
+        assert not marker.exists(), "an unclosed call from a cut reply was executed"
 
 
 def test_run_agent_loop_no_tools():
