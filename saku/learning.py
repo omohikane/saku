@@ -19,6 +19,11 @@ Three rules shape the module:
 
 Provenance is `daily/<date>` (#79), so a promoted fact can be traced back to
 the note it came from.
+
+With `[learning] write_wiki` the same items are also organised into concept
+notes under `wiki/`: one note per idea, never one per day (the vault's own
+`tidy --retire-dumps` archives date-stamped dumps for exactly that reason).
+An existing concept is appended to, never overwritten.
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -39,6 +45,9 @@ _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 # Japanese and international phone shapes. Deliberately broad: a false positive
 # only costs a masked number in a prompt; a false negative sends a real one.
 _PHONE_RE = re.compile(r"(?<!\d)(?:\+?\d[\d\-() ]{7,}\d)(?!\d)")
+_CONCEPT_BLOCK_RE = re.compile(r"\[CONCEPT\](.*?)\[/CONCEPT\]", re.DOTALL)
+_CONCEPT_FIELD_RE = re.compile(r"^([a-z_]+)\s*:\s*(.*)$", re.MULTILINE)
+_DIGIT_RUN_RE = re.compile(r"\d{7,}")
 
 STATE_VERSION = 1
 
@@ -87,10 +96,35 @@ def strip_frontmatter(text: str) -> str:
     return _FRONTMATTER_RE.sub("", text, count=1)
 
 
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _mask_phone(match: re.Match) -> str:
+    """Mask a phone-shaped run, but leave dates alone.
+
+    ``2026-11-18`` fits the broad phone shape (digits and hyphens), so the
+    decision is made on the digit count and on the ISO-date form.
+    """
+    candidate = match.group(0).strip()
+    if _ISO_DATE_RE.match(candidate):
+        return match.group(0)
+    digits = sum(ch.isdigit() for ch in candidate)
+    return "[redacted-phone]" if 10 <= digits <= 15 else match.group(0)
+
+
+def has_contact_details(text: str) -> bool:
+    """Whether a sentence looks like it carries a phone number, e-mail or ID."""
+    if _EMAIL_RE.search(text) or _DIGIT_RUN_RE.search(text):
+        return True
+    return any(
+        _mask_phone(m) == "[redacted-phone]" for m in _PHONE_RE.finditer(text)
+    )
+
+
 def redact(text: str) -> str:
     """Mask contact details before the note leaves the machine or enters memory."""
     text = _EMAIL_RE.sub("[redacted-email]", text)
-    return _PHONE_RE.sub("[redacted-phone]", text)
+    return _PHONE_RE.sub(_mask_phone, text)
 
 
 def normalize(text: str) -> str:
@@ -249,6 +283,240 @@ def learn_notes(
     return report
 
 
+# ── Wiki: one note per concept ──────────────────────────
+def _wiki_title(path: Path) -> str:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return path.stem
+    return (lines[0].lstrip("# ").strip() if lines else path.stem) or path.stem
+
+
+def valid_concept_title(title: str) -> bool:
+    """Reject titles that would break the wiki's conventions (#68).
+
+    No per-day notes (``tidy --retire-dumps`` archives those), no ``MEMORY``
+    shadow, nothing that slugifies to the empty fallback, and no overlong
+    headline.
+    """
+    from saku import wiki
+
+    t = unicodedata.normalize("NFKC", title or "").strip()
+    if not t or len(t) > 40:
+        return False
+    if _DATE_STEM_RE.match(t):
+        return False
+    if t.casefold() == "memory":
+        return False
+    return wiki.slugify(t) not in ("", "note")
+
+
+def clean_concept_body(body: str) -> str:
+    """Drop sentences carrying long digit runs (contact details, IDs)."""
+    parts = re.split(r"(?<=。)", body or "")
+    kept = [p.strip() for p in parts if p.strip() and not has_contact_details(p)]
+    return "".join(kept).strip()
+
+
+def build_concepts(
+    items: list[tuple[str, str]],
+    *,
+    date: str,
+    wiki_root: Path,
+    llm_cfg=None,
+) -> list[dict]:
+    """Group a day's items into concept notes. Returns ``title/tags/links/body``."""
+    if not items:
+        return []
+    existing = []
+    if wiki_root.is_dir():
+        existing = sorted(
+            _wiki_title(p) for p in wiki_root.glob("*.md") if p.name != "_index.md"
+        )
+    listing = "\n".join(f"- {t}" for t in existing[:80]) or "(まだ無い)"
+    item_lines = "\n".join(f"- [{category}] {content}" for category, content in items)
+    prompt = f"""[system] 今日の記憶を、wiki の概念ノートに整理してください。
+
+【既存ノート（同じ概念ならこの title をそのまま使う）】
+{listing}
+
+【今日の記憶】
+{item_lines}
+
+ルール:
+- 1ノート = 1概念。日付ごとのまとめノートは作らない（title に日付を入れない）
+- 既存ノートに吸収できる概念は、その title を一字一句そのまま使う
+- 新しい概念だけ [CONCEPT] を出す。無ければ [NO_CONCEPT]
+- title は日本語の名詞句で 30 文字以内。記号は最小限
+- body は 1〜3 文の要約。箇条書きにしない。固有名詞の列挙より傾向を書く
+- 既存ノートの内容を繰り返さない（新しい情報だけを書く）
+- 電話番号・メールアドレス・長い数字列は書かない
+- tags は 2〜6 個（カンマ区切り）。learn は自動で付くので書かない
+- links は [[MEMORY]] を必ず含め、関連する既存ノートがあれば [[名前]] で足す
+
+出力形式（この形式のみ。ツールは使わない）:
+[CONCEPT]
+title: 概念名
+tags: タグ1, タグ2
+links: [[MEMORY]], [[関連ノート]]
+body: 1〜3文の要約
+[/CONCEPT]
+"""
+    history = [
+        {"role": "system", "content": dreaming.agent.build_system_prompt()},
+        {"role": "user", "content": prompt},
+    ]
+    # Direct LLM call, not the agent loop: the loop would execute any
+    # tool-shaped text the model emits. `[WIKI]` is a real tool name, which is
+    # why the block marker is `[CONCEPT]` and why nothing here goes through
+    # tool dispatch.
+    raw = dreaming._chat_stream(
+        history,
+        llm_cfg or dreaming.agent.llm_for_role("learn"),
+        on_token=lambda _t: None,
+    )
+    if not raw or raw.startswith("[ERROR]"):
+        return []
+
+    concepts = []
+    for block in _CONCEPT_BLOCK_RE.findall(raw):
+        fields = {
+            m.group(1).lower(): m.group(2).strip()
+            for m in _CONCEPT_FIELD_RE.finditer(block)
+        }
+        title = fields.get("title", "")
+        body = clean_concept_body(fields.get("body", ""))
+        if not valid_concept_title(title) or not body:
+            continue
+        concepts.append(
+            {
+                "title": unicodedata.normalize("NFKC", title).strip(),
+                "tags": fields.get("tags", ""),
+                "links": fields.get("links", "") or "[[MEMORY]]",
+                "body": body,
+            }
+        )
+    return concepts
+
+
+def _stamp_source(path: Path, date: str) -> None:
+    """Add the ``> source: daily/<date>`` line once, right after ``> updated:``."""
+    text = path.read_text(encoding="utf-8")
+    if "> source:" in text:
+        return
+    line = provenance.source_line(
+        provenance.make_ref(provenance.KIND_DAILY, date)
+    )
+    lines = text.splitlines()
+    for i, current in enumerate(lines):
+        if current.startswith("> updated:"):
+            lines.insert(i + 1, line)
+            break
+    else:
+        lines.insert(1, line)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _append_concept(path: Path, body: str, date: str) -> bool:
+    """Append new sentences to an existing concept note. Returns True if changed."""
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    bullets = [
+        f"- {part.strip()}"
+        for part in re.split(r"(?<=。)", body)
+        if part.strip()
+    ]
+    # Compare on text, not on the bullet marker: a freshly created note stores
+    # its summary as a plain sentence, later appends store bullets.
+    existing_text = "\n".join(lines)
+    fresh = [b for b in bullets if b[2:] not in existing_text]
+    if not fresh:
+        return False
+
+    if "## 追記" in text:
+        insert_at = lines.index("## 追記") + 1
+        # Skip a blank line directly under the heading.
+        if insert_at < len(lines) and not lines[insert_at].strip():
+            insert_at += 1
+        lines[insert_at:insert_at] = fresh
+    else:
+        lines.extend(["", "## 追記", ""] + fresh)
+    for i, current in enumerate(lines):
+        if current.startswith("> updated:"):
+            # Notes are processed newest first, so a later run can come from an
+            # older day: never move `updated` backwards.
+            previous = current.split(":", 1)[1].strip()
+            if date > previous:
+                lines[i] = f"> updated: {date}"
+            break
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return True
+
+
+def apply_concepts(
+    concepts: list[dict],
+    *,
+    wiki_root: Path,
+    date: str,
+) -> dict:
+    """Create or extend the concept notes. Never overwrites an existing note."""
+    from saku import wiki
+    from saku.tidy import normalize_title
+
+    report = {"created": [], "updated": [], "skipped": []}
+    if not concepts:
+        return report
+
+    existing = {}
+    if wiki_root.is_dir():
+        for p in wiki_root.glob("*.md"):
+            if p.name != "_index.md":
+                existing[normalize_title(_wiki_title(p))] = p
+
+    wrote = False
+    for concept in concepts:
+        title = concept.get("title", "")
+        # apply_concepts is a public helper: do not trust the caller to have
+        # filtered titles or contact details already.
+        body = clean_concept_body(concept.get("body", ""))
+        if not valid_concept_title(title) or not body:
+            report["skipped"].append((title, "invalid concept"))
+            continue
+        title = unicodedata.normalize("NFKC", title).strip()
+        target = existing.get(normalize_title(title))
+        if target is None:
+            candidate = wiki.note_path(wiki_root, title)
+            if candidate.exists():
+                target = candidate
+        if target is None:
+            tags = "auto, learn"
+            if concept.get("tags"):
+                tags += ", " + concept["tags"]
+            wiki.create_note(
+                wiki_root,
+                title,
+                body,
+                tags=tags,
+                links=concept.get("links") or "[[MEMORY]]",
+                date=date,
+            )
+            path = wiki.note_path(wiki_root, title)
+            _stamp_source(path, date)
+            existing[normalize_title(title)] = path
+            report["created"].append(title)
+            wrote = True
+            continue
+        if _append_concept(target, body, date):
+            report["updated"].append(title)
+            wrote = True
+        else:
+            report["skipped"].append((title, "already recorded"))
+
+    if wrote:
+        wiki.regenerate_index(wiki_root)
+    return report
+
+
 # ── CLI ─────────────────────────────────────────────────
 def run_cli(
     cfg: dict,
@@ -293,6 +561,29 @@ def run_cli(
         apply=apply and lcfg.write_memory,
         llm_cfg=llm_cfg,
     )
+    report.setdefault("wiki_created", [])
+    report.setdefault("wiki_updated", [])
+
+    # The wiki stage is where "learning" becomes organised knowledge: one note
+    # per concept, reusing existing titles (see build_concepts). It runs only
+    # when applying, so a dry run never pays for the second call.
+    if apply and lcfg.write_wiki:
+        wiki_root = saku_config.resolve_wiki_root(cfg, config_base, memory_root)
+        dates = {n.name: n.date for n in picked}
+        for name, items in report["processed"]:
+            if not items:
+                continue
+            concepts = build_concepts(
+                items,
+                date=dates.get(name, ""),
+                wiki_root=wiki_root,
+                llm_cfg=llm_cfg,
+            )
+            result = apply_concepts(
+                concepts, wiki_root=wiki_root, date=dates.get(name, "")
+            )
+            report["wiki_created"] += result["created"]
+            report["wiki_updated"] += result["updated"]
 
     if verbose:
         for name, items in report["processed"]:
@@ -306,6 +597,13 @@ def run_cli(
             f"  total: {report['items']} item(s) extracted, "
             f"{report['added']} {verb}"
         )
+        if apply and lcfg.write_wiki:
+            print(
+                f"  wiki: {len(report['wiki_created'])} new, "
+                f"{len(report['wiki_updated'])} updated"
+            )
+        elif not apply:
+            print("  wiki: skipped in dry-run")
         if apply and lcfg.write_memory:
             print(f"  state: {state_path}")
         elif not apply:

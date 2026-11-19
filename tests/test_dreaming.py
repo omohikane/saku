@@ -189,40 +189,48 @@ content: これは捨てる
 
     captured = {}
 
-    def _fake_loop(history, llm_cfg, cfg, mem, code, **kw):
+    def _fake_stream(history, llm_cfg, on_token=None):
         captured["prompt"] = history[-1]["content"]
-        captured["kwargs"] = kw
-        return SimpleNamespace(last_raw=raw, visible="", thinking="")
+        captured["sink"] = on_token
+        return raw
 
-    originals = (dreaming.run_agent_loop, dreaming.agent.build_system_prompt)
-    dreaming.run_agent_loop = _fake_loop
+    originals = (dreaming._chat_stream, dreaming.agent.build_system_prompt,
+                 dreaming.run_agent_loop)
+    dreaming._chat_stream = _fake_stream
     dreaming.agent.build_system_prompt = lambda: "system"
+
+    def _no_loop(*_a, **_k):
+        raise AssertionError("extraction must not go through the agent loop/tool dispatch")
+
+    dreaming.run_agent_loop = _no_loop
     try:
         items = dreaming.extract_items_from_text(
             "朝の作業ログ", date="2026-11-18", kind="daily", llm_cfg=object()
         )
     finally:
-        dreaming.run_agent_loop, dreaming.agent.build_system_prompt = originals
+        (
+            dreaming._chat_stream,
+            dreaming.agent.build_system_prompt,
+            dreaming.run_agent_loop,
+        ) = originals
 
     assert items == [("好み・傾向", "朝は静かな環境を好む")]
     assert "デイリーノート" in captured["prompt"]
     assert "2026-11-18" in captured["prompt"]
     # Machine-read output must not be streamed to stdout.
-    assert callable(captured["kwargs"].get("on_visible"))
+    assert callable(captured["sink"])
 
 
 def test_extract_items_from_text_returns_empty_on_llm_error():
     from types import SimpleNamespace
 
-    originals = (dreaming.run_agent_loop, dreaming.agent.build_system_prompt)
-    dreaming.run_agent_loop = lambda *a, **k: SimpleNamespace(
-        last_raw="[ERROR] empty reply", visible="", thinking=""
-    )
+    originals = (dreaming._chat_stream, dreaming.agent.build_system_prompt)
+    dreaming._chat_stream = lambda *a, **k: "[ERROR] empty reply"
     dreaming.agent.build_system_prompt = lambda: "system"
     try:
         items = dreaming.extract_items_from_text("x", date="2026-11-18", llm_cfg=object())
     finally:
-        dreaming.run_agent_loop, dreaming.agent.build_system_prompt = originals
+        dreaming._chat_stream, dreaming.agent.build_system_prompt = originals
     assert items == []
 
 

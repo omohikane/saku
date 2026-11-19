@@ -50,6 +50,7 @@ def _cfg(daily: Path, **learning_cfg) -> dict:
 
 def _install_extract(items):
     learning.dreaming._saved_extract = learning.dreaming.extract_items_from_text
+    learning._saved_concepts = learning.build_concepts
     calls = []
 
     def _extract(text, *, date, kind="daily", llm_cfg=None):
@@ -57,11 +58,15 @@ def _install_extract(items):
         return list(items)
 
     learning.dreaming.extract_items_from_text = _extract
+    # These tests are about the memory stage; the wiki stage is covered in
+    # test_learn_wiki.py and must not reach the network here.
+    learning.build_concepts = lambda *a, **k: []
     return calls
 
 
 def _restore_extract():
     learning.dreaming.extract_items_from_text = learning.dreaming._saved_extract
+    learning.build_concepts = learning._saved_concepts
 
 
 def test_resolve_dir_defaults_to_the_vault_convention():
@@ -86,6 +91,13 @@ def test_redact_masks_contacts_only():
     assert "someone@example.com" not in masked
     assert "[redacted-phone]" in masked and "[redacted-email]" in masked
     assert "https://example.com/x" in masked
+
+
+def test_redact_leaves_dates_alone():
+    text = "2026-11-18 に 2026-11-17 の話をした。"
+    assert learning.redact(text) == text
+    assert learning.has_contact_details("2026-11-18 の記録") is False
+    assert learning.has_contact_details("03-1234-5678 に電話") is True
 
 
 def test_list_notes_only_accepts_date_named_files_newest_first():

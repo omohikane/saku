@@ -583,6 +583,7 @@ class LearningConfig:
     max_chars: int = 12000  # excerpt cap per note
     redact: bool = True
     write_memory: bool = True
+    write_wiki: bool = True  # concept notes under wiki/ (one per concept, never per day)
 
 
 def load_learning_config(cfg: dict) -> LearningConfig:
@@ -595,6 +596,7 @@ def load_learning_config(cfg: dict) -> LearningConfig:
         max_chars=int(l.get("max_chars", 12000)),
         redact=bool(l.get("redact", True)),
         write_memory=bool(l.get("write_memory", True)),
+        write_wiki=bool(l.get("write_wiki", True)),
     )
 
 
