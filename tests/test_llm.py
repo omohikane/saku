@@ -129,6 +129,77 @@ def test_think_only_stream_is_not_an_error():
     assert "<think>memo</think>" in out
 
 
+def test_stream_status_reports_completion():
+    captured, out = _capture(LlmConfig(name="x", api_url="http://x"))
+    assert captured  # sanity
+    # _capture does not forward status; exercise chat_stream directly.
+    box = {}
+    original = llm_mod.requests.post
+    llm_mod.requests.post = lambda *a, **k: _FakeResponse()
+    try:
+        out = llm_mod.chat_stream(
+            [{"role": "user", "content": "hi"}],
+            LlmConfig(name="x", api_url="http://x"),
+            on_token=lambda _t: None,
+            status=box,
+        )
+    finally:
+        llm_mod.requests.post = original
+    assert out == "ok"
+    assert box == {"complete": True, "error": False}
+
+
+def test_stream_status_marks_a_missing_done_as_incomplete():
+    box = {}
+    lines = [b'data: {"choices":[{"delta":{"content":"half"}}]}']  # no [DONE]
+    original = llm_mod.requests.post
+    llm_mod.requests.post = lambda *a, **k: _FakeResponse(lines)
+    try:
+        out = llm_mod.chat_stream(
+            [{"role": "user", "content": "hi"}],
+            LlmConfig(name="x", api_url="http://x"),
+            on_token=lambda _t: None,
+            status=box,
+        )
+    finally:
+        llm_mod.requests.post = original
+    assert out == "half"
+    assert box["complete"] is False
+    assert box["error"] is False
+
+
+def test_display_does_not_depend_on_chunk_boundaries():
+    """#127: the same reply, chunked differently, must display the same text."""
+
+    def render(deltas):
+        emitted = []
+        lines = [
+            ("data: " + __import__("json").dumps({"choices": [{"delta": {"content": d}}]}))
+            .encode("utf-8")
+            for d in deltas
+        ] + [b"data: [DONE]"]
+        original = llm_mod.requests.post
+        llm_mod.requests.post = lambda *a, **k: _FakeResponse(lines)
+        try:
+            llm_mod.chat_stream(
+                [{"role": "user", "content": "hi"}],
+                LlmConfig(name="x", api_url="http://x"),
+                on_token=emitted.append,
+            )
+        finally:
+            llm_mod.requests.post = original
+        return "".join(emitted)
+
+    text = 'Hello 1 < 2 [[READ_FILE path="x.md"]]\n[[END]] Done'
+    one_shot = render([text])
+    per_char = render(list(text))
+    # Split inside the tool tag and around the comparison operator.
+    awkward = render(["Hello 1 < 2 [", "[READ_FILE path=\"x.md\"]]\n", "[[END]] Done"])
+    assert one_shot == per_char == awkward
+    assert "READ_FILE" not in one_shot
+    assert "Hello 1 < 2" in one_shot
+
+
 def test_load_profile_expands_api_key_from_env():
     import os
 

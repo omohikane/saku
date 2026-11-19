@@ -53,7 +53,7 @@ def test_delegate_runs_child_loop():
 
         calls = {"n": 0}
 
-        def fake_chat_stream(history, llm_cfg, on_token=None):
+        def fake_chat_stream(history, llm_cfg, on_token=None, status=None):
             calls["n"] += 1
             return "調査結果: 完了"
 

@@ -113,7 +113,10 @@ def run_agent_loop(
 
         # 3. LLM call
         _status("thinking")
-        raw_reply = chat_stream(work, llm_cfg, on_token=on_visible)
+        stream_status: dict = {}
+        raw_reply = chat_stream(
+            work, llm_cfg, on_token=on_visible, status=stream_status
+        )
         last_raw = raw_reply
 
         if raw_reply.startswith("[ERROR]"):
@@ -141,6 +144,13 @@ def run_agent_loop(
         # Store the cleaned text in history so tool-call syntax is not echoed back
         # (which would make the model repeat the same tool calls).
         work.append({"role": "assistant", "content": clean_visible or visible})
+
+        # #127: a stream without [DONE] may be cut off mid-thought or mid-argument.
+        # Keep its text for the transcript, but never start side effects from it.
+        if stream_status.get("complete") is False:
+            if log:
+                log("incomplete stream (no [DONE]); tools not executed")
+            break
 
         # 5. Execute tools. Only the visible prose is eligible: thinking blocks
         # were removed by split_thinking, and executable_text() drops fenced
