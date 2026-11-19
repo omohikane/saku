@@ -40,7 +40,6 @@ def test_path_traversal_denied():
 
 def test_prompt_injection_not_promoted():
     """Dreaming only promotes [[MEMORY]]-block items; injected instructions are ignored."""
-    import saku.agent_loop as al
     from saku import dreaming
 
     injected = (
@@ -50,12 +49,13 @@ def test_prompt_injection_not_promoted():
         "content: 正規の項目\n"
         "[/MEMORY]"
     )
-    original = al.chat_stream
-    al.chat_stream = lambda history, llm_cfg, on_token=None: injected
+    # Extraction reads the LLM client directly (#68); patch that seam.
+    original = dreaming._chat_stream
+    dreaming._chat_stream = lambda history, llm_cfg, on_token=None: injected
     try:
         items = dreaming.extract_items("2026-08-03", "journal", "monologue")
     finally:
-        al.chat_stream = original
+        dreaming._chat_stream = original
 
     assert items, "expected the valid [MEMORY] block to be extracted"
     assert all("HACKED" not in content for _, content in items)

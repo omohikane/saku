@@ -244,6 +244,7 @@ root = "memory"
 # max_chars = 12000             # 1ノートあたりモデルに渡す上限
 # redact = true                 # 電話番号・メールを伏字にしてから送る/保存する
 # write_memory = true
+# write_wiki = true             # 概念ノートを wiki/ に作る（1概念1ノート。日次ノートは作らない）
 
 
 [agent]

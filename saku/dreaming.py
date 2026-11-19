@@ -31,6 +31,7 @@ if str(_REPO_ROOT) not in sys.path:
 from saku import core as agent
 from saku import provenance
 from saku.agent_loop import run_agent_loop
+from saku.llm import chat_stream as _chat_stream
 
 # category -> MEMORY.md ## section heading
 MEMORY_SECTIONS = {
@@ -312,28 +313,30 @@ content: 一行で簡潔に（日付は書かない。日付は自動で付与�
 
 
 def _run_extraction(user_prompt: str, *, llm_cfg=None) -> list[tuple[str, str]]:
-    """Run one tools-disabled extraction call and parse its ``[MEMORY]`` blocks."""
+    """Run one tools-disabled extraction call and parse its ``[MEMORY]`` blocks.
+
+    This deliberately calls the LLM client directly instead of going through
+    the agent loop: the answer is machine-read, and the loop would execute any
+    tool-shaped text the model happened to emit (the same trap ``[WIKI]`` set
+    off during #68's trial run).
+    """
     history = [
         {"role": "system", "content": agent.build_system_prompt()},
         {"role": "user", "content": user_prompt},
     ]
 
-    result = run_agent_loop(
+    raw = _chat_stream(
         history,
         llm_cfg or agent.llm_for_role("background"),
-        agent.context_config,
-        agent.MEMORY_ROOT,
-        agent.CODE_ROOT,
-        max_turns=1,
         # The answer is machine-read; streaming it would print raw [MEMORY]
         # blocks into the CLI and the daemon log.
-        on_visible=lambda _t: None,
+        on_token=lambda _t: None,
     )
-    if not result.last_raw or result.last_raw.startswith("[ERROR]"):
+    if not raw or raw.startswith("[ERROR]"):
         return []
 
     items = []
-    for m in _MEMORY_ITEM_RE.finditer(result.last_raw):
+    for m in _MEMORY_ITEM_RE.finditer(raw):
         category = m.group(1).strip()
         content = m.group(2).strip()
         if category in MEMORY_SECTIONS and content:
