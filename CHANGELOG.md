@@ -9,7 +9,7 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 
 ### Fixed
 
-- LLM profiles can carry extra request headers (`headers = { "x-opencode-session" = "..." }` in a `[llm.profiles.*]` section), which gateways such as opencode-go require to route or identify a session. `Authorization` is still built from `api_key` and cannot be overridden by a profile header. (#112)
+- A chat turn whose LLM stream closed without producing any content no longer looks like an ordinary empty reply: the call returns `[ERROR] empty reply from '<profile>': the stream ended without content after Ns`, and the daemon logs every failed call (with its reason) instead of only "no text". Provider-side deadlines and rejected credentials were previously invisible in `saku.log`. (#113)
 
 ### Added
 
