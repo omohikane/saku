@@ -13,8 +13,11 @@ active_profile = "local"
 #                mail replies, MCP talk (a fast local model fits here)
 #   background — autonomous tick, inbox processing, chat archive, scheduled
 #                tasks, nightly reflection, dreaming, weekly review
+#   sort       — clipping classification (`saku sort`). Sends note excerpts,
+#                so point it at a model you are willing to send the vault to.
 # chat = "local"
 # background = "local"
+# sort = "local"
 
 # Fallback settings (used if profiles are not defined or for backward compatibility)
 api_url = "http://127.0.0.1:8080/v1/chat/completions"
@@ -202,6 +205,19 @@ root = "memory"
 # recent_items = 6               # meta.md「最近の出来事」から何件
 # next_items = 4                 # meta.md「次にやりたいこと」から何件
 # memory_items = 8               # MEMORY.md から何件
+
+
+# クリッピングの分類（`saku sort` / `saku do` / [[SORT_NOTES]]）
+# 既定は「提案のみ」：state/sort/<stamp>.json を書くだけで、ファイルは動かさない。
+# 適用は `saku sort --apply`（保存済み提案を消費。分類はやり直さない）。
+# [sort]
+# vault_root = ""              # "" = memory root を持つ vault（<vault>/_saku/memory の上）
+# source_dir = "Clippings"     # vault_root からの相対（または絶対パス）
+# target_dir = "02_Reference"  # この直下の既存フォルダだけを分類先にする
+# review_below = 0.7           # これ未満は 要確認 として動かさない
+# max_files = 40               # 1回の提案で扱う件数
+# max_chars = 800              # 1ファイルあたりモデルに渡す抜粋の長さ
+# allow_agent_apply = false    # [[SORT_NOTES apply="true"]] を許可するか
 
 
 [agent]
