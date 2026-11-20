@@ -101,6 +101,76 @@ def _memory_items(text: str, min_score: int, limit: int) -> list[str]:
     return [item for _score, _last, item in scored[:limit]]
 
 
+_LOG_DATE_RE = re.compile(r"\[(\d{4}-\d{2}-\d{2})")
+
+
+def others_block(memory_root: Path, cfg: dict) -> str:
+    """Who SAKU talks with besides the Owner (#73 / #120).
+
+    The Owner-facing chat used to deny that other agents existed, because the
+    light prompt never mentioned the configured contacts or their channels.
+    This block lists names (never tokens) and the last contact date found in
+    the mail/talk logs, so "小夜" is a known other rather than a made-up name.
+
+    Returns "" when no agents are configured, keeping the prompt unchanged for
+    installations that only talk to the Owner.
+    """
+    from saku import identity
+
+    try:
+        agents = identity.agent_specs(cfg)
+    except Exception:
+        return ""
+    if not agents:
+        return ""
+
+    try:
+        from saku import config as cfg_mod
+
+        mail_dir = cfg_mod.resolve_mail_dir(cfg, Path(memory_root))
+    except Exception:
+        mail_dir = Path(memory_root) / "mail"
+
+    logs = []
+    for name in ("talk.log", "audit.log"):
+        try:
+            logs.append((mail_dir / name).read_text(encoding="utf-8"))
+        except OSError:
+            continue
+    combined = "\n".join(logs)
+
+    lines = []
+    for name, spec in agents.items():
+        scopes = [str(s) for s in spec.get("scopes", [])]
+        channels = [c for c in ("mail", "talk") if c in scopes]
+        channel_text = " / ".join(channels) if channels else "（読み取りのみ）"
+        dates = [
+            m.group(1)
+            for line in combined.splitlines()
+            if name in line
+            for m in [_LOG_DATE_RE.search(line)]
+            if m
+        ]
+        last = f"、最終 {max(dates)}" if dates else ""
+        lines.append(f"- {name}: {channel_text}{last}")
+
+    children = []
+    try:
+        children = sorted(p.stem for p in (Path(memory_root) / "children").glob("*.md"))
+    except OSError:
+        pass
+
+    parts = ["# つながっている相手", "\n".join(lines)]
+    if children:
+        parts.append("子エージェント: " + ", ".join(children))
+    parts.append(
+        "やり取りは上のチャネルに従う（talk は MCP の同期会話、mail は手紙）。"
+        "自分から手紙を送るときは `saku say --to <名前>` を使う（宛先に mail スコープが必要）。"
+        "上の名前は設定（identity）に基づく実在の相手であり、記憶の捏造ではない。"
+    )
+    return "\n\n".join(parts)
+
+
 def continuity_block(memory_root: Path, cfg: PersonaConfig | None = None) -> str:
     """Build the "what has been happening" block within the configured budget.
 

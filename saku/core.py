@@ -191,7 +191,19 @@ def build_system_prompt() -> str:
         static = _build_static_sections()
         _prompt_cache["static"] = static
     volatile = _build_volatile_sections()
-    return f"{static}\n\n{volatile}" if volatile else static
+    prompt = f"{static}\n\n{volatile}" if volatile else static
+    others = _others_section()
+    return f"{prompt}\n\n{others}" if others else prompt
+
+
+def _others_section() -> str:
+    """Configured external contacts (names, channels, last contact)."""
+    try:
+        from saku import persona
+
+        return persona.others_block(MEMORY_ROOT, _cfg)
+    except Exception:
+        return ""
 
 
 def reload_system_prompt_cache() -> None:
@@ -223,6 +235,9 @@ def build_light_system_prompt() -> str:
         block = persona.continuity_block(MEMORY_ROOT, pcfg)
         if block:
             parts.append(block)
+    others = _others_section()
+    if others:
+        parts.append(others)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     parts.append(f"# Current Time\n現在: {now}")
     return "\n\n".join(parts)
