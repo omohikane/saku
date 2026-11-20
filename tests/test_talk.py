@@ -148,7 +148,12 @@ def test_history_is_per_caller():
     sb = Sandbox()
     try:
         stub = StubReply("ok")
-        engine = sb.engine(stub=stub)
+        # #73: every principal must be configured; unknown names are refused.
+        cfg = _cfg(callers=[
+            {"name": "小夜", "token_env": ENV_NAME},
+            {"name": "別人", "token_env": "SAKU_TALK_TOKEN_OTHER_TEST"},
+        ])
+        engine = sb.engine(cfg=cfg, stub=stub)
         engine.talk("小夜", "a", now=1_000.0)
         engine.talk("別人", "b", now=1_001.0)
         assert stub.calls[1][2] == []  # the other caller starts empty
@@ -176,7 +181,16 @@ def test_rate_limit_per_caller():
     sb = Sandbox()
     try:
         stub = StubReply("ok")
-        engine = sb.engine(cfg=_cfg(max_per_hour=2), stub=stub)
+        engine = sb.engine(
+            cfg=_cfg(
+                max_per_hour=2,
+                callers=[
+                    {"name": "小夜", "token_env": ENV_NAME},
+                    {"name": "別人", "token_env": "SAKU_TALK_TOKEN_OTHER_TEST"},
+                ],
+            ),
+            stub=stub,
+        )
         engine.talk("小夜", "1", now=1_000.0)
         engine.talk("小夜", "2", now=1_100.0)
         try:

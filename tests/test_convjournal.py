@@ -241,7 +241,11 @@ def test_mail_empty_note_still_replies():
 # ── Talk hook ───────────────────────────────────────────
 def _talk_cfg(**overrides) -> dict:
     cfg = {
-        "talk": {"max_chars": 1500, "max_per_hour": 30, "callers": []},
+        "talk": {
+            "max_chars": 1500,
+            "max_per_hour": 30,
+            "callers": [{"name": "小夜", "token_env": "SAKU_TEST_TALK_TOKEN"}],
+        },
         "convjournal": {"enabled": True},
     }
     cfg.update(overrides)

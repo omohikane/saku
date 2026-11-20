@@ -32,6 +32,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from saku import auth
+from saku import identity
 from saku import outbox as outbox_mod
 from saku import config as saku_config
 from saku.agent_loop import run_agent_loop
@@ -571,7 +572,14 @@ class Handler(BaseHTTPRequestHandler):
         # #131: the whole turn -- snapshot, inference, save -- runs under the
         # session's lock. Without it, two concurrent turns both read the same
         # history and the slower one overwrote the faster one's exchange.
-        with _session_lock(client_id):
+        with identity.as_principal(identity.OWNER), _session_lock(client_id):
+            identity.audit(
+                _MEMORY_ROOT,
+                identity.OWNER,
+                "chat.turn",
+                channel="webui",
+                detail=f"client={client_id} len={len(message)}",
+            )
             with _sessions_lock:
                 history = _sessions.get(client_id)
                 history = list(history) if history else []

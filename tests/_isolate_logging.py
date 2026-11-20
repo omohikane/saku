@@ -10,10 +10,14 @@ the logger.
 """
 
 import logging
+import os
 import tempfile
 from pathlib import Path
 
 _LOG_DIR = tempfile.mkdtemp(prefix="saku-test-log-")
+# Direct `python tests/test_x.py` runs do not load conftest.py; keep the audit
+# log out of the Owner's memory here too.
+os.environ.setdefault("SAKU_AUDIT_FILE", str(Path(_LOG_DIR) / "audit.log"))
 _HANDLERS: dict[int, logging.Handler] = {}
 
 

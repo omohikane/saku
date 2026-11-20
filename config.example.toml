@@ -222,6 +222,19 @@ root = "memory"
 # allow_agent_apply = false    # [[SORT_NOTES apply="true"]] を許可するか
 
 
+# 名乗りと権限（#73）
+# 名前は記録のため、権限はトークンで決まる。ここに定義したエージェントは
+# [talk] callers と統合され、scopes でできることが決まる。
+# 付与できる scopes: talk / mail / read / request / write / approve
+# （approve と write は本来 Owner 用。エージェントに渡す場合は意味を理解して）
+# [identity.agents.sayo]
+# token_env = "SAKU_SAYO_TOKEN"     # または token_file = "/path/to/token"
+# scopes = ["talk", "mail", "read", "request"]
+#
+# 監査ログ（誰が・いつ・何を試み、許されたか）
+# [audit]
+# file = "state/audit.log"
+
 # Owner への配送キュー（自発発話と通知の共通経路）
 # state/outbox.json に残るので、ブラウザを閉じても再起動しても消えない。
 # [outbox]

@@ -484,7 +484,11 @@ def test_talk_refused_while_stopped():
         return "talk reply"
 
     try:
-        engine = talk.TalkEngine({"talk": {}}, sb.memory, reply_fn=_reply)
+        engine = talk.TalkEngine(
+            {"talk": {"callers": [{"name": "小夜", "token_env": "SAKU_TEST_TALK_TOKEN"}]}},
+            sb.memory,
+            reply_fn=_reply,
+        )
         assert engine.talk("小夜", "こんにちは", now=1_000_000.0) == "talk reply"
 
         killswitch.engage(sb.flag, by="test")
