@@ -924,6 +924,49 @@ def test_self_initiation_keeps_unfinished_draft_at_tail():
         assert "**Owner**" in chat.read_text(encoding="utf-8")
 
 
+def test_self_initiation_stays_quiet_while_sleeping():
+    """#82: presence gates spontaneous speech (notices are exempt)."""
+    import tempfile
+    from types import SimpleNamespace
+
+    with tempfile.TemporaryDirectory() as tmp:
+        chat = Path(tmp) / "chat.md"
+        chat.write_text(
+            daemon_mod.CHAT_RESET_HEADER
+            + "\n\n**Owner** (10:00)\nこんにちは\n\n**SAKU** (10:01)\nやあ\n",
+            encoding="utf-8",
+        )
+        state = {"last_mtime": chat.stat().st_mtime, "last_content": "", "turn_count": 1}
+        saved = {}
+        originals = {
+            "CHAT_FILE": daemon_mod.CHAT_FILE,
+            "load_chat_state": daemon_mod.load_chat_state,
+            "save_chat_state": daemon_mod.save_chat_state,
+            "killswitch_stopped": daemon_mod.killswitch_stopped,
+            "presence_load": daemon_mod.presence.load,
+            "PRESENCE_ENABLED": daemon_mod.PRESENCE_ENABLED,
+        }
+        daemon_mod.CHAT_FILE = chat
+        daemon_mod.load_chat_state = lambda: state
+        daemon_mod.save_chat_state = lambda s: saved.update(s)
+        daemon_mod.killswitch_stopped = lambda: False
+        daemon_mod.presence.load = lambda *a, **k: SimpleNamespace(
+            state="sleeping", source="quiet_hours", can_speak=False
+        )
+        daemon_mod.PRESENCE_ENABLED = True
+        try:
+            daemon_mod.check_autonomous_initiation()
+        finally:
+            daemon_mod.CHAT_FILE = originals["CHAT_FILE"]
+            daemon_mod.load_chat_state = originals["load_chat_state"]
+            daemon_mod.save_chat_state = originals["save_chat_state"]
+            daemon_mod.killswitch_stopped = originals["killswitch_stopped"]
+            daemon_mod.presence.load = originals["presence_load"]
+            daemon_mod.PRESENCE_ENABLED = originals["PRESENCE_ENABLED"]
+
+        assert "last_initiate_attempt" not in saved
+
+
 def test_llm_failure_is_logged_with_its_reason():
     """#113: a failed call must leave the reason in the log, not just "no text"."""
     import logging

@@ -10,6 +10,7 @@
     saku sort     classify Clippings into existing reference folders (proposal first)
     saku do       run a known command from a natural-language request
     saku heartbeat  show/check the daemon liveness signal
+    saku presence show or set the Owner presence hint (when to speak)
     saku learn    distil the Owner's daily notes into MEMORY.md (dry-run default)
     saku sync     commit/push the memory repository now ([git] sync)
     saku bootstrap  guided setup (memory / bind / auth / systemd or docker)
@@ -110,12 +111,17 @@ def main(argv: list[str] | None = None) -> int:
 
         return heartbeat_main(args[1:])
 
+    if cmd == "presence":
+        from saku.presence import main as presence_main
+
+        return presence_main(args[1:])
+
     if cmd == "learn":
         from saku.learning import main as learn_main
 
         return learn_main(args[1:])
 
-    print("Usage: saku [chat|daemon|ui|status|tidy|sort|do|learn|heartbeat|sync|setup|bootstrap|dream|mcp|stop|resume]")
+    print("Usage: saku [chat|daemon|ui|status|tidy|sort|do|learn|heartbeat|presence|sync|setup|bootstrap|dream|mcp|stop|resume]")
     return 0
 
 

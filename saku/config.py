@@ -587,6 +587,41 @@ def load_sort_config(cfg: dict) -> SortConfig:
     )
 
 
+# ── Presence Config (#82) ───────────────────────────────
+# A cheap guess at "where is the Owner?" for deciding whether SAKU should
+# speak (#120). Manual override > quiet hours > work hours > inactivity.
+# No calendar or location service: this is a hint, and every window is
+# configurable because the Owner's schedule is not ours to assume.
+@dataclass
+class PresenceConfig:
+    enabled: bool = True
+    file: str = "state/presence.json"
+    away_after_minutes: int = 180
+    sleep_start: str = "00:30"
+    sleep_end: str = "06:30"
+    work_days: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])  # Monday=0
+    work_start: str = "09:00"
+    work_end: str = "18:00"
+    speak_while_working: bool = False
+    speak_while_away: bool = True
+
+
+def load_presence_config(cfg: dict) -> PresenceConfig:
+    p = cfg.get("presence", {})
+    return PresenceConfig(
+        enabled=bool(p.get("enabled", True)),
+        file=p.get("file", "state/presence.json"),
+        away_after_minutes=int(p.get("away_after_minutes", 180)),
+        sleep_start=p.get("sleep_start", "00:30"),
+        sleep_end=p.get("sleep_end", "06:30"),
+        work_days=[int(d) for d in p.get("work_days", [0, 1, 2, 3, 4])],
+        work_start=p.get("work_start", "09:00"),
+        work_end=p.get("work_end", "18:00"),
+        speak_while_working=bool(p.get("speak_while_working", False)),
+        speak_while_away=bool(p.get("speak_while_away", True)),
+    )
+
+
 # ── Heartbeat Config (#75) ──────────────────────────────
 # The resident daemon writes a heartbeat file every loop; `saku status` and
 # `saku heartbeat --check` read it. The threshold must sit above one slow LLM
