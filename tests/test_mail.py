@@ -315,8 +315,12 @@ def test_reply_cycle_writes_nothing_to_memory():
         after = {str(p.relative_to(sb.memory)) for p in sb.memory.rglob("*") if p.is_file()}
         added = after - before
         assert added, "expected the reply + audit + state to be written"
+        # #154: the exchange also joins the channel-independent conversation
+        # thread. It is conversation, not knowledge, so it must stay outside
+        # MEMORY.md / principles / request_list.
+        allowed = {"state/mail_processed.json", "state/conversation.jsonl"}
         for rel in added:
-            assert rel.startswith("mail/") or rel == "state/mail_processed.json", rel
+            assert rel.startswith("mail/") or rel in allowed, rel
         assert memory_md.read_text(encoding="utf-8") == "PRECIOUS\n"
         assert (sb.memory / "request_list.md").read_text(encoding="utf-8") == "- [ ] do not touch\n"
     finally:
