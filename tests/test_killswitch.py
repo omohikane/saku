@@ -201,8 +201,8 @@ def _chat_env(chat, state, loop_impl, flag):
     daemon_mod.run_agent_loop = loop_impl
     daemon_mod.get_pending_requests = lambda: ""
     daemon_mod.check_chat_archive_if_needed = lambda s: None
-    daemon_mod.notify_webui = lambda msg: None
-    daemon_mod.agent.build_recall_message = lambda msg: None
+    daemon_mod.notify_webui = lambda msg, **k: None
+    daemon_mod.agent.build_recall_message = lambda msg, **k: None
     daemon_mod.agent.save_journal = lambda owner, reply, thinking="": None
 
     def restore():
@@ -320,7 +320,7 @@ def test_reflection_skipped_without_recording_date():
     orig_state = _patch(daemon_mod, "load_chat_state", lambda: state)
     orig_save = _patch(daemon_mod, "save_chat_state", lambda s: None)
     orig_init = _patch(daemon_mod, "saku_self_initiate", lambda reason: None)
-    orig_notify = _patch(daemon_mod, "notify_webui", lambda msg: None)
+    orig_notify = _patch(daemon_mod, "notify_webui", lambda msg, **k: None)
     try:
         (sb.memory / "journal").mkdir(exist_ok=True)
         (sb.memory / "journal" / "2026-08-04.md").write_text("## 20:00\n活動した\n", encoding="utf-8")
@@ -352,7 +352,7 @@ def test_transition_noticed_once_per_edge():
     orig_flag = _patch(daemon_mod, "KILLSWITCH_FLAG", sb.flag)
     orig_state = _patch(daemon_mod, "load_chat_state", lambda: state)
     orig_save = _patch(daemon_mod, "save_chat_state", lambda s: None)
-    orig_notify = _patch(daemon_mod, "notify_webui", lambda msg: notices.append(msg))
+    orig_notify = _patch(daemon_mod, "notify_webui", lambda msg, **k: notices.append(msg))
     try:
         assert daemon_mod.note_killswitch_transition(baseline=True) is False
         assert notices == []

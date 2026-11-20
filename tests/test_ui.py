@@ -277,31 +277,125 @@ def test_system_prompt_is_rebuilt_each_turn():
 
 
 def test_proactive():
-    """GET /api/proactive returns the daemon's notification and then clears it.
+    """GET /api/proactive is the legacy single-message view of the outbox (#120).
 
-    Uses a temporary inbox: the endpoint consumes the file, so pointing it at the
-    live memory root made the assertion depend on daemon timing and silently ate
-    the Owner's pending notification.
+    Uses a temporary memory root: the endpoint acknowledges the entry, so
+    pointing it at the live root would eat the Owner's pending notification.
     """
     import shutil
     import tempfile
 
+    from saku import outbox
+
     tmpdir = Path(tempfile.mkdtemp())
-    inbox = tmpdir / "ui_inbox.json"
-    original_inbox = ui._UI_INBOX
-    ui._UI_INBOX = inbox
+    original_root = ui._MEMORY_ROOT
+    ui._MEMORY_ROOT = tmpdir
     try:
         server = _start_server()
         try:
             assert json.loads(_get(server, "/api/proactive")) == {}
-            inbox.write_text(json.dumps({"message": "お知らせ"}, ensure_ascii=False), encoding="utf-8")
-            assert json.loads(_get(server, "/api/proactive")) == {"message": "お知らせ"}
+            entry = outbox.add(tmpdir, "お知らせ", kind=outbox.KIND_NOTICE)
+            payload = json.loads(_get(server, "/api/proactive"))
+            assert payload["message"] == "お知らせ"
+            assert payload["id"] == entry.id
+            # Answered and acknowledged: the next poll is empty.
             assert json.loads(_get(server, "/api/proactive")) == {}
         finally:
             _stop(server)
     finally:
-        ui._UI_INBOX = original_inbox
+        ui._MEMORY_ROOT = original_root
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_outbox_endpoint_lists_and_acknowledges():
+    """#120: the Owner sees queued speech after reopening the UI, and can dismiss it."""
+    import shutil
+    import tempfile
+
+    from saku import outbox
+
+    tmpdir = Path(tempfile.mkdtemp())
+    original_root = ui._MEMORY_ROOT
+    ui._MEMORY_ROOT = tmpdir
+    try:
+        server = _start_server()
+        try:
+            spoken = outbox.add(tmpdir, "少し話したいことがある", kind=outbox.KIND_SPONTANEOUS)
+            outbox.add(tmpdir, "再起動しました", kind=outbox.KIND_NOTICE)
+
+            payload = json.loads(_get(server, "/api/outbox"))
+            assert payload["unread"] == 2
+            assert {i["kind"] for i in payload["items"]} == {"spontaneous", "notice"}
+
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{server._test_port}/api/outbox/read",
+                data=json.dumps({"ids": [spoken.id]}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as r:
+                assert json.loads(r.read())["changed"] == 1
+
+            payload = json.loads(_get(server, "/api/outbox"))
+            assert payload["unread"] == 1
+            assert payload["items"][0]["kind"] == "notice"
+        finally:
+            _stop(server)
+    finally:
+        ui._MEMORY_ROOT = original_root
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_replying_acknowledges_spontaneous_speech_but_not_notices():
+    """A reply continues the conversation, so queued speech is no longer unread."""
+    import shutil
+    import tempfile
+
+    from saku import outbox
+
+    tmpdir = Path(tempfile.mkdtemp())
+    original_root = ui._MEMORY_ROOT
+    ui._MEMORY_ROOT = tmpdir
+    original_loop = ui.run_agent_loop
+    original_save = ui.agent.save_journal
+    original_prompt = ui.agent.build_light_system_prompt
+    original_recall = ui.agent.build_recall_message
+    from saku.agent_loop import LoopResult
+
+    def fake_loop(history, llm_cfg, ctx, mem, code, **kw):
+        return LoopResult(visible="うん", thinking="", last_raw="うん",
+                          history=list(history) + [{"role": "assistant", "content": "うん"}],
+                          action_taken=True)
+
+    ui.run_agent_loop = fake_loop
+    ui.agent.save_journal = lambda *a, **k: None
+    ui.agent.build_light_system_prompt = lambda: "system"
+    ui.agent.build_recall_message = lambda m: None
+    try:
+        server = _start_server()
+        try:
+            outbox.add(tmpdir, "自発", kind=outbox.KIND_SPONTANEOUS)
+            outbox.add(tmpdir, "通知", kind=outbox.KIND_NOTICE)
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{server._test_port}/api/chat",
+                data=json.dumps({"message": "返事", "client_id": "t-outbox"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                r.read()
+            remaining = outbox.items(tmpdir)
+        finally:
+            _stop(server)
+    finally:
+        ui._MEMORY_ROOT = original_root
+        ui.run_agent_loop = original_loop
+        ui.agent.save_journal = original_save
+        ui.agent.build_light_system_prompt = original_prompt
+        ui.agent.build_recall_message = original_recall
+        ui._sessions.pop("t-outbox", None)
+        ui._session_locks.pop("t-outbox", None)
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    assert [e.kind for e in remaining if not e.read_at] == ["notice"], remaining
 
 
 def test_requests_endpoint():

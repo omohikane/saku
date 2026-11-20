@@ -212,7 +212,7 @@ def _run_gate(now, result=None, last_date="", gcfg=None):
         _patch(daemon_mod, "load_chat_state", lambda: state),
         _patch(daemon_mod, "save_chat_state", lambda s: None),
         _patch(daemon_mod, "saku_self_initiate", lambda reason: reports.append(reason)),
-        _patch(daemon_mod, "notify_webui", lambda msg: reports.append(msg)),
+        _patch(daemon_mod, "notify_webui", lambda msg, **k: reports.append(msg)),
         _patch(daemon_mod.agent.saku_config, "load_growth_config", lambda c: gcfg or _growth()),
     ]
     try:

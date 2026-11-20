@@ -333,7 +333,7 @@ def _run_snapshot_gate(now, state_in=None, gcfg=None, stopped=False):
         (daemon_mod, "load_chat_state", _patch(daemon_mod, "load_chat_state", lambda: state)),
         (daemon_mod, "save_chat_state", _patch(daemon_mod, "save_chat_state", lambda s: saved.append(dict(s)))),
         (daemon_mod, "killswitch_stopped", _patch(daemon_mod, "killswitch_stopped", lambda: stopped)),
-        (daemon_mod, "notify_webui", _patch(daemon_mod, "notify_webui", lambda m: notices.append(m))),
+        (daemon_mod, "notify_webui", _patch(daemon_mod, "notify_webui", lambda m, **k: notices.append(m))),
         (saku_config, "load_growth_config",
          _patch(saku_config, "load_growth_config", lambda c: gcfg or saku_config.GrowthConfig())),
     ]

@@ -9,7 +9,9 @@ Mechanism:
 - POST /api/chat             → accepts {message} and runs run_agent_loop
 - Response is text/event-stream; status, visible tokens, tool runs, and completion are sent as events
 - GET  /api/health           → health check
-- GET  /api/proactive        → fetches autonomous messages (proactive messages/alerts) written by the daemon
+- GET  /api/proactive        → legacy single-message endpoint (oldest unread outbox entry)
+- GET  /api/outbox           → unread messages SAKU addressed to the Owner (spontaneous speech / notices)
+- POST /api/outbox/read      → acknowledge entries ({ids:[...]} or {all:true})
 
 Session history is kept in memory (localhost single-user assumption, v1).
 """
@@ -30,6 +32,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from saku import auth
+from saku import outbox as outbox_mod
 from saku import config as saku_config
 from saku.agent_loop import run_agent_loop
 from saku import core as agent
@@ -37,7 +40,6 @@ from saku import core as agent
 _cfg, _config_base = saku_config.load_config()
 _MEMORY_ROOT = agent.MEMORY_ROOT
 _CTX = agent.context_config
-_UI_INBOX = _MEMORY_ROOT / "state" / "ui_inbox.json"
 
 _UI = saku_config.load_ui_config(_cfg)
 
@@ -134,6 +136,14 @@ PAGE = """<!doctype html>
   #proactive { position:fixed; right:16px; bottom:80px; background:var(--panel);
                border:1px solid var(--accent); border-radius:8px; padding:10px 14px;
                max-width:280px; display:none; }
+  #notifbtn { background:none; border:1px solid #555; border-radius:8px;
+              color:var(--text); cursor:pointer; padding:2px 8px; }
+  #outbox { position:fixed; right:16px; bottom:140px; background:var(--panel);
+            border:1px solid var(--accent); border-radius:8px; padding:8px 12px;
+            max-width:320px; display:none; max-height:40vh; overflow-y:auto; }
+  .outbox-item { display:flex; gap:8px; align-items:flex-start; margin:6px 0;
+                 font-size:0.88em; }
+  .outbox-item button { background:none; border:none; color:#888; cursor:pointer; }
   #requestbar { display:flex; align-items:center; gap:6px; }
   #requestbtn { background:var(--panel); color:#e0af68; border:1px solid #555;
                 border-radius:8px; padding:4px 10px; font-size:0.85em; cursor:pointer;
@@ -155,9 +165,11 @@ PAGE = """<!doctype html>
 </head>
 <body>
 <div id="app">
-  <header><strong>SAKU</strong><span id="status">local</span></header>
+  <header><strong>SAKU</strong><span id="status">local</span>
+    <button id="notifbtn" title="デスクトップ通知を許可">🔔</button></header>
   <div id="messages"></div>
   <div id="proactive"></div>
+  <div id="outbox"></div>
   <div id="requestbar">
     <button id="requestbtn">💡 依頼<span id="requestbadge">0</span></button>
     <div id="requestpanel"><h4>💡 Ownerへのお願いリスト</h4><ul></ul></div>
@@ -253,19 +265,60 @@ async function send() {
 $("#send").onclick = send;
 input.addEventListener("keydown", e => { if (e.key === "Enter") send(); });
 
-async function pollProactive() {
+const seenOutbox = new Set();
+async function acknowledge(id) {
   try {
-    const res = await fetch("/api/proactive");
+    await fetch("/api/outbox/read", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ids: [id]}),
+    });
+    pollOutbox();
+  } catch (e) {}
+}
+async function pollOutbox() {
+  try {
+    const res = await fetch("/api/outbox");
     const data = await res.json();
-    if (data && data.message) {
-      const box = $("#proactive");
-      box.style.display = "block";
-      box.textContent = "SAKUから: " + data.message;
-      box.onclick = () => { box.style.display = "none"; };
+    const items = (data && data.items) || [];
+    const box = $("#outbox");
+    box.textContent = "";
+    box.style.display = items.length ? "block" : "none";
+    for (const item of items) {
+      const row = document.createElement("div");
+      row.className = "outbox-item";
+      const label = document.createElement("span");
+      label.textContent = (item.kind === "spontaneous" ? "SAKU: " : "通知: ") + item.text;
+      const close = document.createElement("button");
+      close.textContent = "×";
+      close.onclick = () => acknowledge(item.id);
+      row.appendChild(label);
+      row.appendChild(close);
+      box.appendChild(row);
+
+      if (!seenOutbox.has(item.id)
+          && "Notification" in window
+          && Notification.permission === "granted") {
+        try { new Notification("SAKU", {body: item.text}); } catch (e) {}
+      }
+      seenOutbox.add(item.id);
     }
   } catch (e) {}
 }
-setInterval(pollProactive, 10000);
+const notifbtn = $("#notifbtn");
+if (!("Notification" in window)) {
+  notifbtn.style.display = "none";
+} else if (Notification.permission !== "default") {
+  notifbtn.style.display = "none";
+}
+notifbtn.onclick = async () => {
+  try {
+    await Notification.requestPermission();
+  } catch (e) {}
+  notifbtn.style.display = Notification.permission === "granted" ? "none" : "inline-block";
+};
+setInterval(pollOutbox, 10000);
+pollOutbox();
 
 async function pollRequests() {
   try {
@@ -304,15 +357,30 @@ def _sse(event: dict) -> str:
     return "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
 
 
+def _outbox_cfg():
+    from saku import config as cfg_mod
+
+    cfg, _ = cfg_mod.load_config()
+    return cfg_mod.load_outbox_config(cfg)
+
+
+def _outbox_items(unread_only: bool = True) -> list[dict]:
+    cfg = _outbox_cfg()
+    entries = outbox_mod.items(_MEMORY_ROOT, cfg=cfg, unread_only=unread_only)
+    if unread_only:
+        outbox_mod.mark_delivered(_MEMORY_ROOT, [e.id for e in entries], cfg=cfg)
+    return [e.to_dict() for e in entries]
+
+
 def _load_proactive() -> dict:
-    if not _UI_INBOX.exists():
+    """Legacy contract: answer with the oldest unread message and mark it read."""
+    items = _outbox_items()
+    if not items:
         return {}
-    try:
-        data = json.loads(_UI_INBOX.read_text(encoding="utf-8"))
-        _UI_INBOX.write_text("{}", encoding="utf-8")
-        return data
-    except Exception:
-        return {}
+    item = items[0]
+    cfg = _outbox_cfg()
+    outbox_mod.mark_read(_MEMORY_ROOT, [item["id"]], cfg=cfg)
+    return {"message": item["text"], "kind": item["kind"], "id": item["id"]}
 
 
 _REQ_FILE = _MEMORY_ROOT / "request_list.md"
@@ -406,6 +474,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send_headers(ctype="application/json")
             self.wfile.write(json.dumps(_load_proactive(), ensure_ascii=False).encode("utf-8"))
             return
+        if path == "/api/outbox":
+            self._send_headers(ctype="application/json")
+            payload = {"items": _outbox_items(), "unread": outbox_mod.unread_count(_MEMORY_ROOT, _outbox_cfg())}
+            self.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+            return
         if path == "/api/requests":
             self._send_headers(ctype="application/json")
             self.wfile.write(json.dumps({"requests": _load_requests()}, ensure_ascii=False).encode("utf-8"))
@@ -441,6 +514,25 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_login(status=403, error=True)
             return
 
+        if path == "/api/outbox/read":
+            if not self._authenticated():
+                self._send_unauthorized()
+                return
+            try:
+                payload = json.loads(body or b"{}")
+            except Exception:
+                payload = {}
+            ids = payload.get("ids")
+            ids = [str(i) for i in ids] if isinstance(ids, list) else None
+            changed = outbox_mod.mark_read(
+                _MEMORY_ROOT,
+                ids if ids is not None else None,
+                cfg=_outbox_cfg(),
+            )
+            self._send_headers(ctype="application/json")
+            self.wfile.write(json.dumps({"changed": changed}, ensure_ascii=False).encode("utf-8"))
+            return
+
         if path != "/api/chat":
             self._send_headers(404)
             self.wfile.write(b"not found")
@@ -465,6 +557,16 @@ class Handler(BaseHTTPRequestHandler):
         if not message:
             self.wfile.write(_sse({"type": "error", "text": "メッセージが空です"}).encode("utf-8"))
             return
+
+        # Replying is the Owner's acknowledgement of what SAKU said on its own
+        # (#120): the conversation continues, so the queued speech is no longer
+        # "unread". Notices are left alone; they are status, not conversation.
+        try:
+            outbox_mod.mark_read(
+                _MEMORY_ROOT, kind=outbox_mod.KIND_SPONTANEOUS, cfg=_outbox_cfg()
+            )
+        except Exception:
+            pass
 
         # #131: the whole turn -- snapshot, inference, save -- runs under the
         # session's lock. Without it, two concurrent turns both read the same

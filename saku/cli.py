@@ -11,6 +11,7 @@
     saku do       run a known command from a natural-language request
     saku heartbeat  show/check the daemon liveness signal
     saku presence show or set the Owner presence hint (when to speak)
+    saku outbox   list or acknowledge messages SAKU sent to the Owner
     saku learn    distil the Owner's daily notes into MEMORY.md (dry-run default)
     saku sync     commit/push the memory repository now ([git] sync)
     saku bootstrap  guided setup (memory / bind / auth / systemd or docker)
@@ -116,12 +117,17 @@ def main(argv: list[str] | None = None) -> int:
 
         return presence_main(args[1:])
 
+    if cmd == "outbox":
+        from saku.outbox import main as outbox_main
+
+        return outbox_main(args[1:])
+
     if cmd == "learn":
         from saku.learning import main as learn_main
 
         return learn_main(args[1:])
 
-    print("Usage: saku [chat|daemon|ui|status|tidy|sort|do|learn|heartbeat|presence|sync|setup|bootstrap|dream|mcp|stop|resume]")
+    print("Usage: saku [chat|daemon|ui|status|tidy|sort|do|learn|heartbeat|presence|outbox|sync|setup|bootstrap|dream|mcp|stop|resume]")
     return 0
 
 

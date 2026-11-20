@@ -222,6 +222,13 @@ root = "memory"
 # allow_agent_apply = false    # [[SORT_NOTES apply="true"]] を許可するか
 
 
+# Owner への配送キュー（自発発話と通知の共通経路）
+# state/outbox.json に残るので、ブラウザを閉じても再起動しても消えない。
+# [outbox]
+# file = "state/outbox.json"
+# max_items = 200
+# retention_days = 30
+
 # 文脈の感知（`saku presence` / 自発発話の可否）
 # 手動 > 深夜 > 勤務時間 > 無活動 の順で判定する。カレンダーや位置情報は使わない。
 # [presence]

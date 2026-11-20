@@ -587,6 +587,26 @@ def load_sort_config(cfg: dict) -> SortConfig:
     )
 
 
+# ── Outbox Config (#120) ────────────────────────────────
+# One delivery queue for everything SAKU says to the Owner on its own:
+# spontaneous speech and operational notices. It is durable so a closed
+# browser or a daemon restart does not lose the message.
+@dataclass
+class OutboxConfig:
+    file: str = "state/outbox.json"
+    max_items: int = 200
+    retention_days: int = 30
+
+
+def load_outbox_config(cfg: dict) -> OutboxConfig:
+    o = cfg.get("outbox", {})
+    return OutboxConfig(
+        file=o.get("file", "state/outbox.json"),
+        max_items=int(o.get("max_items", 200)),
+        retention_days=int(o.get("retention_days", 30)),
+    )
+
+
 # ── Presence Config (#82) ───────────────────────────────
 # A cheap guess at "where is the Owner?" for deciding whether SAKU should
 # speak (#120). Manual override > quiet hours > work hours > inactivity.
