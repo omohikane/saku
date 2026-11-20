@@ -260,19 +260,34 @@ class PathPolicy:
 
     def is_read_allowed(self, path: str) -> bool:
         rel = normalize_memory_path(path)
-        return rel is not None and any(rel.startswith(p) for p in self.read_allowed)
+        return rel is not None and any(_entry_matches(rel, p) for p in self.read_allowed)
 
     def is_write_allowed(self, path: str) -> bool:
         rel = normalize_memory_path(path)
         if rel is None or rel in self.write_denied_exact:
             return False
-        return any(rel.startswith(p) for p in self.write_allowed)
+        return any(_entry_matches(rel, p) for p in self.write_allowed)
 
     def is_delete_allowed(self, path: str) -> bool:
         rel = normalize_memory_path(path)
         if rel is None or rel in self.delete_denied_exact:
             return False
-        return any(rel.startswith(p) for p in self.write_allowed)
+        return any(_entry_matches(rel, p) for p in self.write_allowed)
+
+
+def _entry_matches(rel: str, entry: str) -> bool:
+    """Whether ``rel`` is the directory/file named by a policy entry.
+
+    Entries are written as ``children/`` for a directory, while a normalized
+    path is ``children`` (normpath drops the trailing slash). Comparing
+    ``rel.startswith(entry)`` therefore denied the directory itself — listing
+    ``children/`` failed even though files under it were allowed (#124
+    follow-up).
+    """
+    base = entry.strip().rstrip("/")
+    if not base:
+        return False
+    return rel == base or rel.startswith(base + "/")
 
 
 def normalize_memory_path(path: str) -> str | None:

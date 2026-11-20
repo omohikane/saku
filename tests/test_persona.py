@@ -101,6 +101,39 @@ def test_legacy_entry_parses_but_stays_below_the_score_floor():
     assert persona._memory_items("- 2026-08-03: 古い記憶", min_score=3, limit=8) == []
 
 
+def test_others_block_names_configured_agents_without_tokens():
+    """#73/#120: the Owner-facing prompt must know its external contacts."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "children").mkdir()
+        (root / "children" / "mei.md").write_text("# mei", encoding="utf-8")
+        (root / "mail").mkdir()
+        (root / "mail" / "talk.log").write_text(
+            "[2026-11-19 21:00:00] [talk] 小夜: received\n", encoding="utf-8"
+        )
+        cfg = {
+            "talk": {"callers": [{"name": "小夜", "token_env": "SHOULD_NOT_APPEAR"}]},
+            "identity": {"agents": {"sayo": {"token_env": "ALSO_SECRET", "scopes": ["mail"]}}},
+        }
+        block = persona.others_block(root, cfg)
+        assert "小夜" in block and "sayo" in block
+        assert "2026-11-19" in block
+        assert "mei" in block
+        assert "SHOULD_NOT_APPEAR" not in block and "ALSO_SECRET" not in block
+        assert "saku say --to" in block
+
+
+def test_others_block_is_empty_without_agents():
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        assert persona.others_block(Path(tmp), {}) == ""
+
+
 def test_continuity_can_be_disabled():
     with tempfile.TemporaryDirectory() as tmp:
         cfg = persona.load_persona_config({"persona": {"continuity_enabled": False}})

@@ -63,6 +63,34 @@ def test_policy_treats_equivalent_paths_the_same():
     assert policy.is_delete_allowed("journal/x.md")
 
 
+def test_directory_entries_allow_the_directory_itself():
+    """`children/` in the policy must allow listing `children` (no trailing slash)."""
+    policy = cfg_mod.load_path_policy({})
+    for name in ("children", "journal", "wiki", "study", "principles", "state"):
+        assert policy.is_read_allowed(name), name
+        assert policy.is_read_allowed(name + "/"), name
+    assert policy.is_write_allowed("study")
+    assert policy.is_write_allowed("study/")
+    # A file whose name merely starts with an allowed name is still refused.
+    assert not policy.is_read_allowed("childrenX/secret.md")
+
+
+def test_list_dir_can_list_the_children_directory():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = _root(Path(tmp))
+        (root / "children").mkdir()
+        (root / "children" / "mei.md").write_text("# mei", encoding="utf-8")
+        original = _use_default_policy()
+        try:
+            from saku.tools import list_dir
+
+            out = list_dir.run(root, path="children/")
+        finally:
+            cfg_mod._policy_cache = original
+        assert out.startswith("[DENY]") is False, out
+        assert "mei.md" in out
+
+
 def test_write_file_cannot_reach_meta_via_dot_segment():
     with tempfile.TemporaryDirectory() as tmp:
         root = _root(Path(tmp))
