@@ -235,6 +235,18 @@ root = "memory"
 # [audit]
 # file = "state/audit.log"
 
+# 自発発話の「理由」（`saku reachout` / #120）
+# 宛先ごとに間隔を空けて、記録から「話す理由」を生成し、配送は speech 経由。
+# 既定は無効。頻度・空気の評価は Owner が行う前提で、まずは手動実行から。
+# [reachout]
+# enabled = false
+# recipients = []              # "owner" と/または mail スコープを持つエージェント名
+# min_interval_hours = 24
+# max_chars = 400
+# context_chars = 1500
+# poll_seconds = 1800
+# state_file = "state/reachout.json"
+
 # 自発発話の配送（`saku say` / #120 第2段）
 # 宛先は owner（UI の outbox）か、[identity.agents] で mail スコープを持つエージェント。
 # [speech]

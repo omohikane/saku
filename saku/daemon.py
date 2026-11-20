@@ -39,6 +39,7 @@ from saku import provenance
 from saku import persona
 from saku import outbox
 from saku import presence
+from saku import reachout
 from saku import reflection
 from saku import skills as saku_skills
 from saku import weekly
@@ -80,6 +81,13 @@ HEARTBEAT_NOTIFY_ON_GAP = _hbcfg.notify_on_gap
 # Heartbeat/outage notices are exempt: a failure must be reported even at night.
 PRESENCE_ENABLED = agent.saku_config.load_presence_config(agent._cfg).enabled
 PRESENCE_CFG = agent.saku_config.load_presence_config(agent._cfg)
+
+# Spontaneous speech reasons (#120). Off unless [reachout] enabled and a
+# recipient is configured; even then the per-recipient interval in the state
+# file decides whether a model call is spent.
+_reachout_cfg = agent.saku_config.load_reachout_config(agent._cfg)
+REACHOUT_ENABLED = _reachout_cfg.enabled
+REACHOUT_POLL_SECONDS = max(60, _reachout_cfg.poll_seconds)
 
 CHAT_POLL_SECONDS = _dcfg.get("chat_poll_seconds", 5)
 INBOX_POLL_SECONDS = _dcfg.get("inbox_poll_seconds", 3600)
@@ -1299,6 +1307,27 @@ def main():
         _release_lock()
 
 
+def check_reachout() -> None:
+    """Ask for a reason to speak once per poll (#120).
+
+    The per-recipient interval lives in reachout's state, so calling this
+    often costs nothing when nothing is due: `due()` is decided before any
+    model call.
+    """
+    if not REACHOUT_ENABLED:
+        return
+    if killswitch_stopped():
+        return
+    try:
+        reachout.run(
+            cfg=agent._cfg,
+            memory_root=MEMORY_ROOT,
+            log=lambda msg: logger.info("[reachout] %s", msg),
+        )
+    except Exception as e:  # a failed reachout must not stop the loop
+        logger.warning("[reachout] failed: %s", e)
+
+
 # ── Heartbeat (#75) ────────────────────────────────────────
 def _beat(interval: int | None = None) -> None:
     """Record that the daemon loop is alive. Never raises."""
@@ -1388,6 +1417,7 @@ def _daemon_run():
     last_schedule_check = now_ts
     check_mail()
     last_mail_check = now_ts
+    last_reachout_check = 0.0
 
     while True:
         try:
@@ -1422,6 +1452,11 @@ def _daemon_run():
             if now - last_schedule_check >= 60:
                 check_scheduled_tasks()
                 last_schedule_check = now
+
+            # 3d2. A reason to speak (#120). Disabled unless configured.
+            if REACHOUT_ENABLED and now - last_reachout_check >= REACHOUT_POLL_SECONDS:
+                check_reachout()
+                last_reachout_check = now
 
             # 3e. Persist memory writes that did not come from the agent loop
             # (reflection / dreaming write files directly). Debounced inside.
