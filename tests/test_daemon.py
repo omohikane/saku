@@ -967,6 +967,34 @@ def test_self_initiation_stays_quiet_while_sleeping():
         assert "last_initiate_attempt" not in saved
 
 
+def test_reachout_runs_only_when_enabled():
+    """#120: the daemon asks for a reason only when configured, and never while stopped."""
+    called = []
+    originals = {
+        "REACHOUT_ENABLED": daemon_mod.REACHOUT_ENABLED,
+        "killswitch_stopped": daemon_mod.killswitch_stopped,
+        "run": daemon_mod.reachout.run,
+    }
+    daemon_mod.reachout.run = lambda **k: called.append(k) or []
+    daemon_mod.killswitch_stopped = lambda: False
+    try:
+        daemon_mod.REACHOUT_ENABLED = False
+        daemon_mod.check_reachout()
+        assert called == []
+
+        daemon_mod.REACHOUT_ENABLED = True
+        daemon_mod.check_reachout()
+        assert len(called) == 1
+
+        daemon_mod.killswitch_stopped = lambda: True
+        daemon_mod.check_reachout()
+        assert len(called) == 1, "a stopped SAKU does not ask for a reason"
+    finally:
+        daemon_mod.REACHOUT_ENABLED = originals["REACHOUT_ENABLED"]
+        daemon_mod.killswitch_stopped = originals["killswitch_stopped"]
+        daemon_mod.reachout.run = originals["run"]
+
+
 def test_llm_failure_is_logged_with_its_reason():
     """#113: a failed call must leave the reason in the log, not just "no text"."""
     import logging

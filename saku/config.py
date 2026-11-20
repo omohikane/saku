@@ -587,6 +587,34 @@ def load_sort_config(cfg: dict) -> SortConfig:
     )
 
 
+# ── Reachout Config (#120) ──────────────────────────────
+# A reason for speaking, generated on demand and delivered through #120's
+# speech path. Off by default and with no recipients: whether SAKU speaks on
+# its own is the Owner's call, and the evaluation belongs to the Owner.
+@dataclass
+class ReachoutConfig:
+    enabled: bool = False
+    recipients: list[str] = field(default_factory=list)  # "owner" and/or agent names
+    min_interval_hours: float = 24.0  # per recipient
+    max_chars: int = 400
+    context_chars: int = 1500
+    poll_seconds: int = 1800
+    state_file: str = "state/reachout.json"
+
+
+def load_reachout_config(cfg: dict) -> ReachoutConfig:
+    r = cfg.get("reachout", {})
+    return ReachoutConfig(
+        enabled=bool(r.get("enabled", False)),
+        recipients=[str(x) for x in r.get("recipients", [])],
+        min_interval_hours=float(r.get("min_interval_hours", 24.0)),
+        max_chars=int(r.get("max_chars", 400)),
+        context_chars=int(r.get("context_chars", 1500)),
+        poll_seconds=int(r.get("poll_seconds", 1800)),
+        state_file=r.get("state_file", "state/reachout.json"),
+    )
+
+
 # ── Outbox Config (#120) ────────────────────────────────
 # One delivery queue for everything SAKU says to the Owner on its own:
 # spontaneous speech and operational notices. It is durable so a closed

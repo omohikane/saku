@@ -14,6 +14,7 @@
     saku outbox   list or acknowledge messages SAKU sent to the Owner
     saku audit    show the append-only identity/action log
     saku say      deliver a message from SAKU to the Owner or an agent
+    saku reachout ask for a reason to speak and deliver it (opt-in)
     saku learn    distil the Owner's daily notes into MEMORY.md (dry-run default)
     saku sync     commit/push the memory repository now ([git] sync)
     saku bootstrap  guided setup (memory / bind / auth / systemd or docker)
@@ -134,12 +135,17 @@ def main(argv: list[str] | None = None) -> int:
 
         return say_main(args[1:])
 
+    if cmd == "reachout":
+        from saku.reachout import main as reachout_main
+
+        return reachout_main(args[1:])
+
     if cmd == "learn":
         from saku.learning import main as learn_main
 
         return learn_main(args[1:])
 
-    print("Usage: saku [chat|daemon|ui|status|tidy|sort|do|learn|heartbeat|presence|outbox|audit|say|sync|setup|bootstrap|dream|mcp|stop|resume]")
+    print("Usage: saku [chat|daemon|ui|status|tidy|sort|do|learn|heartbeat|presence|outbox|audit|say|reachout|sync|setup|bootstrap|dream|mcp|stop|resume]")
     return 0
 
 
