@@ -26,6 +26,10 @@ from saku import ui
 os.environ.setdefault(
     "SAKU_AUDIT_FILE", str(Path(tempfile.mkdtemp(prefix="saku-test-audit-")) / "audit.log")
 )
+os.environ.setdefault(
+    "SAKU_CONVERSATION_FILE",
+    str(Path(tempfile.mkdtemp(prefix="saku-test-conv-")) / "conversation.jsonl"),
+)
 
 PORT_BASE = 8800
 _PORT_COUNTER = {"n": 0}
@@ -160,6 +164,7 @@ def test_concurrent_requests_for_one_session_are_serialized():
     """#131: the slower turn used to overwrite the faster one's exchange."""
     from saku.agent_loop import LoopResult
 
+    Path(os.environ["SAKU_CONVERSATION_FILE"]).write_text("", encoding="utf-8")
     server = _start_server()
     events = []
     snapshots = []
@@ -242,6 +247,47 @@ def test_requests_for_different_sessions_run_in_parallel():
         _stop(server)
 
     assert reached == [True, True], reached
+
+
+def test_a_new_client_continues_the_shared_thread():
+    """#120 follow-up: another tab/device is the same conversation, not a stranger."""
+    from saku import conversation
+    from saku.agent_loop import LoopResult
+
+    Path(os.environ["SAKU_CONVERSATION_FILE"]).write_text("", encoding="utf-8")
+    conversation.append(tmp_root := Path(tempfile.mkdtemp()), channel="chat.md",
+                        principal="owner", role="user", text="前の場所での話")
+    conversation.append(tmp_root, channel="chat.md", principal="owner",
+                        role="assistant", text="覚えています")
+
+    server = _start_server()
+    seen = {}
+    originals = (ui.run_agent_loop, ui.agent.build_light_system_prompt,
+                 ui.agent.build_recall_message, ui.agent.save_journal)
+    ui.agent.save_journal = lambda *a, **k: None
+    ui.agent.build_recall_message = lambda m: None
+    ui.agent.build_light_system_prompt = lambda: "system"
+
+    def fake_loop(history, llm_cfg, ctx, mem, code, **kw):
+        seen["contents"] = [m["content"] for m in history]
+        return LoopResult(visible="続きだね", thinking="", last_raw="続きだね",
+                          history=list(history) + [{"role": "assistant", "content": "続きだね"}],
+                          action_taken=True)
+
+    ui.run_agent_loop = fake_loop
+    out = {}
+    try:
+        t = _post_chat(server, "新しい端末から", "t-new-device", out, 1)
+        t.join(10)
+    finally:
+        ui.run_agent_loop, ui.agent.build_light_system_prompt, \
+            ui.agent.build_recall_message, ui.agent.save_journal = originals
+        ui._sessions.pop("t-new-device", None)
+        ui._session_locks.pop("t-new-device", None)
+        _stop(server)
+
+    assert "前の場所での話" in seen["contents"], seen
+    assert "覚えています" in seen["contents"], seen
 
 
 def test_system_prompt_is_rebuilt_each_turn():

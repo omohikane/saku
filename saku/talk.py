@@ -59,6 +59,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import config as saku_config
+from . import conversation
 from . import convjournal
 from . import identity
 from . import killswitch
@@ -350,6 +351,16 @@ class TalkEngine:
             self._audit(
                 "talk:replied", caller,
                 _digest(reply_text, hashlib.sha256(reply_text.encode("utf-8")).hexdigest()),
+            )
+            # #120 follow-up: one conversation thread across channels. The talk
+            # channel writes its turns here so a later channel can see them.
+            conversation.append(
+                self.memory_root, channel="talk", principal=caller,
+                role="user", text=message, cfg=self._identity_cfg, now=now,
+            )
+            conversation.append(
+                self.memory_root, channel="talk", principal=caller,
+                role="assistant", text=reply_text, cfg=self._identity_cfg, now=now,
             )
             # Conversation journal (#101): SAKU's own summary of this
             # exchange joins the day's journal, where the nightly reflection

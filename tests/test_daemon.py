@@ -241,6 +241,12 @@ def test_owner_message_gets_reply_appended():
         assert state["turn_count"] == 1
         # #44: the exchange must reach the journal, which reflection/dreaming read
         assert journalled == [("今日はどう？", "おかえりなさい。")], journalled
+        # #120 follow-up: and the channel-independent thread, so another
+        # channel (Web UI, later Discord) sees the same conversation.
+        from saku import conversation
+
+        thread = conversation.recent(Path("/tmp"), limit=20, channels=["chat.md"])
+        assert [e["text"] for e in thread][-2:] == ["今日はどう？", "おかえりなさい。"], thread
 
 
 def test_empty_reply_posts_fallback_instead_of_silence():

@@ -18,6 +18,7 @@ _LOG_DIR = tempfile.mkdtemp(prefix="saku-test-log-")
 # Direct `python tests/test_x.py` runs do not load conftest.py; keep the audit
 # log out of the Owner's memory here too.
 os.environ.setdefault("SAKU_AUDIT_FILE", str(Path(_LOG_DIR) / "audit.log"))
+os.environ.setdefault("SAKU_CONVERSATION_FILE", str(Path(_LOG_DIR) / "conversation.jsonl"))
 _HANDLERS: dict[int, logging.Handler] = {}
 
 

@@ -9,6 +9,10 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 
 ### Added
 
+- One conversation thread across every channel (#120 follow-up): `saku/conversation.py` appends each visible Owner/agent turn to `state/conversation.jsonl` (channel, principal, role, text, time; tool results and system prompts are never stored) and seeds a fresh channel from the recent turns of the same principal. The Web UI writes and seeds through it, so another tab or device continues the same conversation instead of meeting a stranger; chat.md, talk and mail write their turns too, so a future Discord/Slack adapter only has to call `append` / `history_messages`. The log is capped by entry count (`[conversation] max_entries`) and seeded history by characters (`max_chars`), and other principals (e.g. 小夜) never leak into the Owner thread.
+
+
+
 - The Owner-facing prompt knows its external contacts (#73 / #120): `persona.others_block()` lists the configured agents (from `[identity.agents.*]` and `[talk] callers`) with their channels and the last contact date found in the mail/talk logs, plus the child agents that exist under `children/`. Names only — never tokens. Without it the chat denied that agents like 小夜 existed, because the light prompt had no record of them.
 
 ### Fixed

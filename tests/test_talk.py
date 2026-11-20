@@ -161,6 +161,33 @@ def test_history_is_per_caller():
         sb.close()
 
 
+def test_talk_exchanges_join_the_shared_conversation():
+    import tempfile as _tf
+    from pathlib import Path as _Path
+
+    from saku import conversation
+
+    sb = Sandbox()
+    previous = os.environ.get("SAKU_CONVERSATION_FILE")
+    os.environ["SAKU_CONVERSATION_FILE"] = str(
+        _Path(_tf.mkdtemp(prefix="saku-talk-conv-")) / "conversation.jsonl"
+    )
+    try:
+        engine = sb.engine(stub=StubReply("おかえり"))
+        engine.talk("小夜", "ただいま", now=1_000.0)
+        entries = conversation.recent(sb.memory, limit=10, principal="小夜")
+        assert [(e["channel"], e["role"], e["text"]) for e in entries] == [
+            ("talk", "user", "ただいま"),
+            ("talk", "assistant", "おかえり"),
+        ]
+    finally:
+        if previous is None:
+            os.environ.pop("SAKU_CONVERSATION_FILE", None)
+        else:
+            os.environ["SAKU_CONVERSATION_FILE"] = previous
+        sb.close()
+
+
 def test_too_long_rejected_without_llm_spend():
     sb = Sandbox()
     try:

@@ -32,6 +32,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from saku import auth
+from saku import conversation
 from saku import identity
 from saku import outbox as outbox_mod
 from saku import config as saku_config
@@ -358,11 +359,17 @@ def _sse(event: dict) -> str:
     return "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
 
 
-def _outbox_cfg():
+def _app_cfg() -> dict:
     from saku import config as cfg_mod
 
     cfg, _ = cfg_mod.load_config()
-    return cfg_mod.load_outbox_config(cfg)
+    return cfg
+
+
+def _outbox_cfg():
+    from saku import config as cfg_mod
+
+    return cfg_mod.load_outbox_config(_app_cfg())
 
 
 def _outbox_items(unread_only: bool = True) -> list[dict]:
@@ -580,9 +587,16 @@ class Handler(BaseHTTPRequestHandler):
                 channel="webui",
                 detail=f"client={client_id} len={len(message)}",
             )
+            app_cfg = _app_cfg()
             with _sessions_lock:
-                history = _sessions.get(client_id)
-                history = list(history) if history else []
+                stored = _sessions.get(client_id)
+                history = list(stored) if stored else []
+            if stored is None:
+                # #120 follow-up: a new tab/device continues the shared thread
+                # instead of meeting a stranger. Channel-independent by design.
+                history = conversation.history_messages(
+                    _MEMORY_ROOT, principal="owner", cfg=app_cfg
+                )
             system_prompt = _fresh_system_prompt()
             if history and history[0].get("role") == "system":
                 history[0] = {"role": "system", "content": system_prompt}
@@ -609,9 +623,18 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 with _sessions_lock:
                     _sessions[client_id] = result.history
+                conversation.append(
+                    _MEMORY_ROOT, channel="webui", principal="owner",
+                    role="user", text=message, session=client_id, cfg=app_cfg,
+                )
                 if result.last_raw.startswith("[ERROR]") and not result.visible:
                     self._emit({"type": "error", "text": result.last_raw})
                 elif result.visible:
+                    conversation.append(
+                        _MEMORY_ROOT, channel="webui", principal="owner",
+                        role="assistant", text=result.visible, session=client_id,
+                        cfg=app_cfg,
+                    )
                     agent.save_journal(message, result.visible, thinking=result.thinking)
                 self._emit({"type": "done"})
             except BrokenPipeError:

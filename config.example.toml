@@ -235,6 +235,16 @@ root = "memory"
 # [audit]
 # file = "state/audit.log"
 
+# チャネルをまたぐ会話スレッド（Web UI / chat.md / talk / mail）
+# state/conversation.jsonl に追記し、新しい場所（別タブ・別チャネル・将来の
+# Discord/Slack）は同じ principal の直近の会話から始まる。ツール結果は保存しない。
+# [conversation]
+# enabled = true
+# file = "state/conversation.jsonl"
+# history_limit = 12           # 新しいチャネルへ引き継ぐ直近ターン数
+# max_chars = 4000             # 引き継ぎ時の文字数上限
+# max_entries = 2000           # ログの上限（古いものから捨てる）
+
 # 自発発話の「理由」（`saku reachout` / #120）
 # 宛先ごとに間隔を空けて、記録から「話す理由」を生成し、配送は speech 経由。
 # 既定は無効。頻度・空気の評価は Owner が行う前提で、まずは手動実行から。
