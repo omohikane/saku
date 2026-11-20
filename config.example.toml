@@ -224,6 +224,15 @@ root = "memory"
 # allow_agent_apply = false    # [[SORT_NOTES apply="true"]] を許可するか
 
 
+# Vault の読み取り範囲（ツール用・読み取り専用）
+# 既定は memory root のみ。ここに列挙したディレクトリだけ READ_FILE / LIST_DIR /
+# SEARCH_NOTES から見える。書き込みは不可（パス保護のまま）。
+# [access]
+# vault_root = ""                  # "" = memory root を持つ vault
+# vault_read = ["01_Notes/", "02_Reference/"]
+# max_file_chars = 4000            # READ_FILE の上限
+# max_search_results = 10          # SEARCH_NOTES の表示件数
+
 # 人格ファイルの場所（soul / genome / persona）
 # 相対パスは memory root 基準。絶対パスと ${VAR} も可。
 # [identity]

@@ -399,6 +399,12 @@ def _build_static_sections() -> str:
     _policy = saku_config.get_path_policy()
     _write_allowed = ", ".join(_policy.write_allowed)
     _write_denied = ", ".join(_policy.write_denied_exact)
+    try:
+        from saku import access
+
+        _read_scope = access.describe(MEMORY_ROOT, _cfg)
+    except Exception:
+        _read_scope = "Memory root only"
     _meta_update_rule = meta_update_rule()
 
     # MCP tools (external servers) — only if configured; empty otherwise.
@@ -571,7 +577,7 @@ def _build_static_sections() -> str:
                 "- path is relative to the memory root\n"
                 f"- Write allowed: {_write_allowed}\n"
                 f"- Write denied: {_write_denied}\n"
-                "- Read/List allowed: Vault全体（メモリルート内および `../` を経由した他ディレクトリも読取可）\n"
+                f"- Read/List allowed: {_read_scope}\n"
                 "- Do not assume success — wait for [OK] or file content\n"
                 "- Tool format must be exact. Do not improvise.\n"
                 "- When asked to find files, use SEARCH_NOTES or LIST_DIR first, then READ_FILE\n"

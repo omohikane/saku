@@ -9,46 +9,56 @@ one directory away (#120 follow-up).
 import os
 from pathlib import Path
 
+from saku import access
+
 def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
     query = body.strip().lower()
     if not query:
         return "[ERROR] search query is empty"
 
-    vault_root = base.parent if base.name == "_saku" else base
     searchable = (".md", ".log", ".jsonl")
+    roots = access.search_roots(base)
+    vroot = access.vault_root(base)
+    acfg = access.load_access_config(access.cached_cfg())
 
     results = []
-    for p in vault_root.rglob("*"):
-        if not p.is_file() or p.suffix.lower() not in searchable:
-            continue
-        # Skip hidden files and directories (like .git, .obsidian, etc.)
-        if any(part.startswith('.') for part in p.relative_to(vault_root).parts):
-            continue
-            
-        try:
-            content = p.read_text(encoding="utf-8")
-            if query in content.lower():
-                # Get path relative to base (SAKU_ROOT) so Saku can read/write it directly
-                rel_path = os.path.relpath(p, base)
-                
-                # Extract snippet
-                lines = content.splitlines()
-                matching_snippet = ""
-                for line in lines:
-                    if query in line.lower():
-                        matching_snippet = line.strip()
-                        if len(matching_snippet) > 80:
-                            matching_snippet = matching_snippet[:80] + "..."
-                        break
-                
-                results.append(f"- path: {rel_path}\n  snippet: \"{matching_snippet}\"")
-        except Exception as e:
-            continue
+    seen = set()
+    for root in roots:
+        for p in root.rglob("*"):
+            if not p.is_file() or p.suffix.lower() not in searchable:
+                continue
+            if any(part.startswith('.') for part in p.relative_to(root).parts):
+                continue
+            try:
+                content = p.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            if query not in content.lower():
+                continue
+            # Memory paths stay memory-relative; vault paths are vault-relative
+            # so READ_FILE can use them directly (the [access] scope).
+            try:
+                rel_path = p.relative_to(base).as_posix()
+            except ValueError:
+                try:
+                    rel_path = p.relative_to(vroot).as_posix()
+                except ValueError:
+                    rel_path = p.as_posix()
+            if rel_path in seen:
+                continue
+            seen.add(rel_path)
+            snippet = ""
+            for line in content.splitlines():
+                if query in line.lower():
+                    snippet = line.strip()
+                    if len(snippet) > 80:
+                        snippet = snippet[:80] + "..."
+                    break
+            results.append(f"- path: {rel_path}\n  snippet: \"{snippet}\"")
 
     if not results:
         return f"No matches found for query: {body.strip()}"
 
-    # Return up to 10 results
     output = [f"Found {len(results)} match(es):"]
-    output.extend(results[:10])
+    output.extend(results[: acfg.max_search_results])
     return "\n\n".join(output)

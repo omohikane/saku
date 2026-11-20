@@ -19,7 +19,11 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 
 - The Owner-facing prompt knows its external contacts (#73 / #120): `persona.others_block()` lists the configured agents (from `[identity.agents.*]` and `[talk] callers`) with their channels and the last contact date found in the mail/talk logs, plus the child agents that exist under `children/`. Names only — never tokens. Without it the chat denied that agents like 小夜 existed, because the light prompt had no record of them.
 
-### Fixed
+### Added
+
+- Configurable read-only access to the Owner's vault (`[access]`, #73 follow-up): `READ_FILE` / `LIST_DIR` / `SEARCH_NOTES` can reach only the directories listed in `[access] vault_read` (default empty = memory root only). Paths are vault-relative, prefix-checked at component boundaries, hidden files and symlink escapes are refused, and writes stay impossible. The system prompt's "Read/List allowed" line is generated from this config instead of claiming the whole vault was readable while `../` was denied since #124. `saku learn` and `saku sort` keep their own dedicated paths and are unaffected.
+
+
 
 - The chat can actually find its correspondence (#120 follow-up): `mail/` is now read-allowed (`READ_FILE mail/talk.log` works), `SEARCH_NOTES` scans `.log` / `.jsonl` as well as `.md` (the talk transcript and mail audit live in logs, so "小夜" returned "no record" while nine matches sat in memory), and the tool rules now say to run `SEARCH_NOTES` / `LIST_DIR` / `READ_FILE` before claiming there is no record. On the live vault the same query now returns the talk log, the audit log and the letters.
 
