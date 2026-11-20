@@ -545,6 +545,7 @@ def _build_static_sections() -> str:
                 "- Do not assume success — wait for [OK] or file content\n"
                 "- Tool format must be exact. Do not improvise.\n"
                 "- When asked to find files, use SEARCH_NOTES or LIST_DIR first, then READ_FILE\n"
+                "- **調べてと言われたら実行する**: 「調べて」「思い出して」「心あたりは？」と言われたら、答える前に SEARCH_NOTES / LIST_DIR / READ_FILE を使う。mail（手紙・talk の記録）は `mail/` にある。「記録がない」と言えるのは実行した後だけ。\n"
                 "- **ツール呼び出しは1回だけ**: 既に実行したツール呼び出しを繰り返さない。同じファイルを何度も読まない。ツールの結果は `[system] tool results` として返ってくるので、それを基に回答を続けてください。\n"
                 "- **対話中の検索実行**: Ownerとの対話中に、知らない言葉、最新の情報、事実確認が必要な話題が出てきた場合は、単に「知らない」と答えて終わるのではなく、積極的に `WEB_SEARCH` ツールを使用してネット検索を行い、得られた情報をもとに回答してください。\n"
                 f"- **meta.mdの更新**: `meta.md` は{_meta_update_rule}\n"
