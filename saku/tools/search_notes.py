@@ -1,4 +1,10 @@
-"""Search markdown files within the vault using keywords."""
+"""Search memory files using keywords.
+
+Markdown is the bulk of memory, but the mail channel's correspondence lives
+in ``mail/*.log`` and talk transcripts in ``mail/talk.log``. Searching only
+``*.md`` made "do you remember 小夜?" answer "no record" while the record sat
+one directory away (#120 follow-up).
+"""
 
 import os
 from pathlib import Path
@@ -9,10 +15,12 @@ def run(base: Path, path: str = "", body: str = "", **kwargs) -> str:
         return "[ERROR] search query is empty"
 
     vault_root = base.parent if base.name == "_saku" else base
-    
+    searchable = (".md", ".log", ".jsonl")
+
     results = []
-    # Recursively scan for markdown files
-    for p in vault_root.glob("**/*.md"):
+    for p in vault_root.rglob("*"):
+        if not p.is_file() or p.suffix.lower() not in searchable:
+            continue
         # Skip hidden files and directories (like .git, .obsidian, etc.)
         if any(part.startswith('.') for part in p.relative_to(vault_root).parts):
             continue
