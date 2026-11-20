@@ -234,8 +234,15 @@ DEFAULT_WRITE_ALLOWED = [
     "blog/", "monologue/", "principles/", "skills/", "tools/",
     "chat.md", "study/", "journal/", "request_list.md", "wiki/", "children/",
 ]
-DEFAULT_WRITE_DENIED_EXACT = ["meta.md", "state/STOP"]
-DEFAULT_DELETE_DENIED_EXACT = ["meta.md", "chat.md", "request_list.md", "genome.md", "soul.md", "state/STOP"]
+# Identity files are edited by the Owner (Web UI / CLI), never by SAKU's own
+# tools. They are not in write_allowed, but an explicit deny keeps the intent
+# visible and makes `[paths] write_allowed` unable to grant them by accident.
+IDENTITY_FILES = ["identity/soul.md", "identity/genome.md", "identity/persona.md"]
+DEFAULT_WRITE_DENIED_EXACT = ["meta.md", "state/STOP", *IDENTITY_FILES]
+DEFAULT_DELETE_DENIED_EXACT = [
+    "meta.md", "chat.md", "request_list.md", "genome.md", "soul.md",
+    "state/STOP", *IDENTITY_FILES,
+]
 
 # Canonical section structure of meta.md (the self-model). Must match
 # memory/meta.template.md: the template forbids changing the `## ` headings,

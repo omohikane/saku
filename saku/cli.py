@@ -15,6 +15,7 @@
     saku audit    show the append-only identity/action log
     saku say      deliver a message from SAKU to the Owner or an agent
     saku reachout ask for a reason to speak and deliver it (opt-in)
+    saku persona  show or scaffold the persona document
     saku learn    distil the Owner's daily notes into MEMORY.md (dry-run default)
     saku sync     commit/push the memory repository now ([git] sync)
     saku bootstrap  guided setup (memory / bind / auth / systemd or docker)
@@ -140,12 +141,17 @@ def main(argv: list[str] | None = None) -> int:
 
         return reachout_main(args[1:])
 
+    if cmd == "persona":
+        from saku.persona import main as persona_main
+
+        return persona_main(args[1:])
+
     if cmd == "learn":
         from saku.learning import main as learn_main
 
         return learn_main(args[1:])
 
-    print("Usage: saku [chat|daemon|ui|status|tidy|sort|do|learn|heartbeat|presence|outbox|audit|say|reachout|sync|setup|bootstrap|dream|mcp|stop|resume]")
+    print("Usage: saku [chat|daemon|ui|status|tidy|sort|do|learn|heartbeat|presence|outbox|audit|say|reachout|persona|sync|setup|bootstrap|dream|mcp|stop|resume]")
     return 0
 
 

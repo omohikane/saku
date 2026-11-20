@@ -191,9 +191,32 @@ def build_system_prompt() -> str:
         static = _build_static_sections()
         _prompt_cache["static"] = static
     volatile = _build_volatile_sections()
-    prompt = f"{static}\n\n{volatile}" if volatile else static
+    persona_doc = _persona_section()
+    parts = [static]
+    if persona_doc:
+        parts.append(persona_doc)
+    if volatile:
+        parts.append(volatile)
     others = _others_section()
-    return f"{prompt}\n\n{others}" if others else prompt
+    if others:
+        parts.append(others)
+    return "\n\n".join(parts)
+
+
+def _persona_section() -> str:
+    """The persona document as its own deterministic system section.
+
+    Kept separate from genome.md on purpose: genome is "who SAKU is", this is
+    "how SAKU speaks". A missing file changes nothing.
+    """
+    try:
+        from saku import persona
+
+        pcfg = persona.load_persona_config(_cfg)
+        doc = persona.load_persona_doc(MEMORY_ROOT, pcfg)
+        return f"# Persona\n{doc}" if doc else ""
+    except Exception:
+        return ""
 
 
 def _others_section() -> str:
@@ -227,6 +250,9 @@ def build_light_system_prompt() -> str:
 
     pcfg = persona.load_persona_config(_cfg)
     parts = [static]
+    persona_doc = persona.load_persona_doc(MEMORY_ROOT, pcfg)
+    if persona_doc:
+        parts.append(f"# Persona\n{persona_doc}")
     if pcfg.style_contract:
         parts.append(persona.STYLE_CONTRACT)
     # Continuity lives in the system prompt rather than in a mid-history system
@@ -282,9 +308,11 @@ def build_inbox_system_prompt() -> str:
     Used by daemon check_inbox_and_process (#18) to avoid the 11k-token
     full prompt per file.
     """
-    genome_path = _find_genome_path()
-    soul = load_file(MEMORY_ROOT / "identity/soul.md")
-    genome = compress(load_file(genome_path), MAX_GENOME_CHARS)
+    from saku import personafiles
+
+    files = personafiles.resolve(_cfg, MEMORY_ROOT)
+    soul = load_file(files.soul)
+    genome = compress(load_file(files.genome), MAX_GENOME_CHARS)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     return (
         "# SAKU Core\n" + soul + "\n\n"
@@ -361,9 +389,11 @@ def _build_static_sections() -> str:
     ``memory/identity/genome.md`` (or ``vault_root/identity/genome.md``), with the
     repo ``identity/genome.md`` as a sample/fallback for fresh clones.
     """
-    genome_path = _find_genome_path()
-    soul = load_file(MEMORY_ROOT / "identity/soul.md")
-    genome = compress(load_file(genome_path), MAX_GENOME_CHARS)
+    from saku import personafiles
+
+    files = personafiles.resolve(_cfg, MEMORY_ROOT)
+    soul = load_file(files.soul)
+    genome = compress(load_file(files.genome), MAX_GENOME_CHARS)
 
     # Permission lists are generated from the single source of truth (config [paths]).
     _policy = saku_config.get_path_policy()
@@ -666,20 +696,14 @@ def _build_static_sections() -> str:
 
 
 def _find_genome_path() -> Path:
-    """Resolve genome.md. Priority: vault memory -> vault root -> repo identity.
+    """Resolve genome.md through the shared identity-file resolver.
 
-    The repo's identity/genome.md is only a sample; the personal master lives in
-    the vault (memory/identity/ or the vault root identity/).
+    ``[identity] genome`` wins; the old fallbacks (vault root, repo sample)
+    still apply when it is absent, so an upgrade does not lose the file.
     """
-    candidates = [
-        MEMORY_ROOT / "identity" / "genome.md",
-        MEMORY_ROOT.parent / "identity" / "genome.md",
-        CODE_ROOT.parent / "identity" / "genome.md",
-    ]
-    for p in candidates:
-        if p.exists():
-            return p
-    return candidates[-1]
+    from saku import personafiles
+
+    return personafiles.resolve(_cfg, MEMORY_ROOT).genome
 
 
 # ── Chat API (streaming) ────────────────────────────────

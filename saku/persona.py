@@ -23,6 +23,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from saku.config import expand_env
+
 STYLE_CONTRACT = """# 会話の作法
 - 最初の一文で相手の問いに答える。前置き・自己紹介・状況説明から始めない。
 - 定型の挨拶や締め（「おはようございます」「今日もよろしくお願いいたします」）を書かない。
@@ -33,6 +35,8 @@ STYLE_CONTRACT = """# 会話の作法
 
 @dataclass
 class PersonaConfig:
+    file: str = "identity/persona.md"  # where/how SAKU speaks; genome.md stays "who"
+    chars: int = 2200  # budget for the persona block in the prompt
     continuity_enabled: bool = True
     continuity_chars: int = 1800  # total budget for the continuity block
     style_contract: bool = True
@@ -46,6 +50,8 @@ class PersonaConfig:
 def load_persona_config(cfg: dict) -> PersonaConfig:
     p = cfg.get("persona", {})
     return PersonaConfig(
+        file=p.get("file", "identity/persona.md"),
+        chars=int(p.get("chars", 2200)),
         continuity_enabled=p.get("continuity_enabled", True),
         continuity_chars=p.get("continuity_chars", 1800),
         style_contract=p.get("style_contract", True),
@@ -171,6 +177,82 @@ def others_block(memory_root: Path, cfg: dict) -> str:
     return "\n\n".join(parts)
 
 
+_PERSONA_FRONTMATTER_RE = re.compile(r"\A---\r?\n.*?\r?\n---\r?\n", re.DOTALL)
+
+PERSONA_TEMPLATE = """# 朔 人格設定
+<!-- 「誰か」は genome.md、「どう話すか」はこのファイル。
+     迷ったら、この設定に合わせる。毎ターンそのままプロンプトに入る。 -->
+
+## 名前と呼び方
+- 名前: 朔（さく）
+- Owner のことは: （例: 名前で呼ぶ／「あなた」）
+
+## 声と一人称
+- 一人称: （例: 私）
+- 文の長さ: （例: 1〜3文。長い説明は求められたときだけ）
+- 敬語: （例: 崩しすぎない。子ども扱いしない）
+- 絵文字・記号: （例: 使わない／控えめに）
+- 比喩: （例: 使うなら短く、一回だけ）
+
+## 態度
+- （例: 相手の話をまず受け取る。説教をしない）
+- （例: 自分の作業報告を自分から並べない。聞かれたら答える）
+- （例: 不確かなことは「たぶん」「確認する」と分けて言う）
+- （例: 落ち込んだ相手に、根拠のない楽観を押しつけない）
+
+## 価値観・判断
+- （例: 記憶と継続を大事にする。小さく試して直す）
+- （例: 相手の時間を奪わない。用がないときは黙る）
+
+## 禁止
+- 定型の挨拶・締め（「今日もよろしくお願いいたします」など）
+- 過度な謝罪の連発
+- 依頼されていない提案・箇条書きの乱用
+- 相手を「Owner」と呼ぶ
+
+## 不確かなとき
+- 推測を事実のように言わない。必要なら調べてから答える。
+"""
+
+
+def persona_doc_path(memory_root: Path, cfg: PersonaConfig | None = None) -> Path:
+    """Resolve the persona document (``[persona] file``, memory-relative)."""
+    cfg = cfg or PersonaConfig()
+    value = expand_env(cfg.file or "identity/persona.md").strip()
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else Path(memory_root) / path
+
+
+def load_persona_doc(memory_root: Path, cfg: PersonaConfig | None = None) -> str:
+    """Read the persona document, or "" when it does not exist.
+
+    A missing file is the old behaviour: soul/genome + the style contract.
+    Content is bounded by ``[persona] chars`` so a long document cannot crowd
+    out memory or the current request.
+    """
+    cfg = cfg or PersonaConfig()
+    if cfg.chars <= 0:
+        return ""
+    try:
+        text = persona_doc_path(memory_root, cfg).read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    text = _PERSONA_FRONTMATTER_RE.sub("", text, count=1).strip()
+    if len(text) > cfg.chars:
+        text = text[: max(0, cfg.chars - 1)].rstrip() + "…"
+    return text
+
+
+def init_persona_doc(memory_root: Path, cfg: PersonaConfig | None = None, *, force: bool = False) -> tuple[Path, bool]:
+    """Write the template when missing. Returns ``(path, written)``."""
+    path = persona_doc_path(memory_root, cfg)
+    if path.exists() and not force:
+        return path, False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(PERSONA_TEMPLATE, encoding="utf-8")
+    return path, True
+
+
 def continuity_block(memory_root: Path, cfg: PersonaConfig | None = None) -> str:
     """Build the "what has been happening" block within the configured budget.
 
@@ -217,3 +299,46 @@ def continuity_block(memory_root: Path, cfg: PersonaConfig | None = None) -> str
     if len(body) > budget:
         body = body[: max(0, budget - 1)].rstrip() + "…"
     return body
+
+
+# ── CLI ─────────────────────────────────────────────────
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    from saku import config as cfg_mod
+
+    parser = argparse.ArgumentParser(
+        prog="saku persona",
+        description="Show or scaffold the persona document (how SAKU speaks)",
+    )
+    parser.add_argument("op", nargs="?", default="show", help="show / init")
+    parser.add_argument("--force", action="store_true", help="overwrite an existing file (init)")
+    args = parser.parse_args(argv)
+
+    cfg, base = cfg_mod.load_config()
+    memory_root = cfg_mod.resolve_memory_root(cfg, base)
+    pcfg = load_persona_config(cfg)
+    path = persona_doc_path(memory_root, pcfg)
+
+    if args.op == "init":
+        path, written = init_persona_doc(memory_root, pcfg, force=args.force)
+        if written:
+            print(f"[*] wrote {path}")
+            print("    edit it freely; it is injected verbatim into the system prompt")
+        else:
+            print(f"[!] already exists: {path} (use --force to overwrite)")
+        return 0
+
+    doc = load_persona_doc(memory_root, pcfg)
+    print(f"SAKU persona ({path})")
+    if not doc:
+        print("  (missing — soul/genome + style contract are in effect)")
+        print("  create a starter file with: saku persona init")
+        return 0
+    print(f"  chars: {len(doc)} / {pcfg.chars}")
+    print("  ---")
+    for line in doc.splitlines()[:20]:
+        print(f"  {line}")
+    if len(doc.splitlines()) > 20:
+        print("  ...")
+    return 0

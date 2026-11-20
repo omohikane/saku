@@ -134,6 +134,70 @@ def test_others_block_is_empty_without_agents():
         assert persona.others_block(Path(tmp), {}) == ""
 
 
+def test_persona_document_is_loaded_and_bounded():
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "identity").mkdir()
+        cfg = persona.PersonaConfig(file="identity/persona.md", chars=60)
+        assert persona.load_persona_doc(root, cfg) == ""
+
+        (root / "identity" / "persona.md").write_text(
+            "---\ntags: persona\n---\n" + "あ" * 200, encoding="utf-8"
+        )
+        doc = persona.load_persona_doc(root, cfg)
+        assert "tags:" not in doc
+        assert len(doc) <= 60 and doc.endswith("…")
+
+
+def test_persona_init_writes_once_and_force_overwrites():
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        cfg = persona.PersonaConfig(file="identity/persona.md")
+        path, written = persona.init_persona_doc(root, cfg)
+        assert written and path.is_file()
+        assert "## 声と一人称" in path.read_text(encoding="utf-8")
+
+        path.write_text("custom", encoding="utf-8")
+        _path, written = persona.init_persona_doc(root, cfg)
+        assert not written
+        assert path.read_text(encoding="utf-8") == "custom"
+
+        _path, written = persona.init_persona_doc(root, cfg, force=True)
+        assert written and "custom" not in path.read_text(encoding="utf-8")
+
+
+def test_light_prompt_includes_the_persona_document():
+    """The persona file is injected verbatim, not inferred by the model."""
+    import tempfile
+    from pathlib import Path
+
+    from saku import core
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "identity").mkdir()
+        (root / "identity" / "persona.md").write_text(
+            "# 朔 人格設定\n- 一人称: 私\n- 文の長さ: 短く\n", encoding="utf-8"
+        )
+        originals = (core.MEMORY_ROOT, core._cfg, core._prompt_cache["static"])
+        core.MEMORY_ROOT = root
+        core._cfg = {"persona": {"file": "identity/persona.md", "chars": 500}}
+        core._prompt_cache["static"] = None
+        try:
+            prompt = core.build_light_system_prompt()
+        finally:
+            core.MEMORY_ROOT, core._cfg, core._prompt_cache["static"] = originals
+
+        assert "# Persona" in prompt
+        assert "一人称: 私" in prompt
+
+
 def test_continuity_can_be_disabled():
     with tempfile.TemporaryDirectory() as tmp:
         cfg = persona.load_persona_config({"persona": {"continuity_enabled": False}})
