@@ -9,6 +9,10 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 
 ### Added
 
+- Persona as an editable configuration file (#73 follow-up): `identity/persona.md` is injected verbatim as a `# Persona` system section (bounded by `[persona] chars`), separate from `genome.md` ("who is SAKU") and `soul.md` ("core values"). All three paths are configurable (`[identity] soul / genome`, `[persona] file`; memory-relative, absolute or `${VAR}`), with the old genome fallbacks preserved. The Web UI gains an identity editor (⚙) that reads/writes exactly these three files behind the Owner token, reloads the prompt cache after a save, keeps one `.bak`, and audits the write; `saku persona init` scaffolds a starter document. SAKU's own tools can never touch them: all three are on the write and delete deny lists, so `WRITE_FILE` / `APPEND_FILE` / `MOVE_FILE` / `DELETE_FILE` refuse them even if `[paths] write_allowed` is widened. `docs/PERSONA.md` explains the layering and the OSS workflow.
+
+
+
 - One conversation thread across every channel (#120 follow-up): `saku/conversation.py` appends each visible Owner/agent turn to `state/conversation.jsonl` (channel, principal, role, text, time; tool results and system prompts are never stored) and seeds a fresh channel from the recent turns of the same principal. The Web UI writes and seeds through it, so another tab or device continues the same conversation instead of meeting a stranger; chat.md, talk and mail write their turns too, so a future Discord/Slack adapter only has to call `append` / `history_messages`. The log is capped by entry count (`[conversation] max_entries`) and seeded history by characters (`max_chars`), and other principals (e.g. 小夜) never leak into the Owner thread.
 
 

@@ -450,6 +450,89 @@ def test_replying_acknowledges_spontaneous_speech_but_not_notices():
     assert [e.kind for e in remaining if not e.read_at] == ["notice"], remaining
 
 
+def _identity_env(tmp: Path):
+    (tmp / "identity").mkdir(parents=True, exist_ok=True)
+    (tmp / "identity" / "soul.md").write_text("# soul\n", encoding="utf-8")
+    (tmp / "identity" / "genome.md").write_text("# genome\n", encoding="utf-8")
+    (tmp / "identity" / "persona.md").write_text("# persona\n", encoding="utf-8")
+    return {"identity": {"soul": "identity/soul.md", "genome": "identity/genome.md"},
+            "persona": {"file": "identity/persona.md", "chars": 500}}
+
+
+def test_persona_files_can_be_read_and_saved_from_the_ui():
+    """#73 follow-up: the Owner edits identity files; SAKU's tools cannot."""
+    import shutil
+    import tempfile
+
+    from saku import identity
+
+    tmp = Path(tempfile.mkdtemp())
+    cfg = _identity_env(tmp)
+    original_root, original_cfg = ui._MEMORY_ROOT, ui._app_cfg
+    ui._MEMORY_ROOT = tmp
+    ui._app_cfg = lambda: cfg
+    reloads = []
+    original_reload = ui.agent.reload_system_prompt_cache
+    ui.agent.reload_system_prompt_cache = lambda: reloads.append(True)
+    try:
+        server = _start_server()
+        try:
+            data = json.loads(_get(server, "/api/persona/files"))
+            names = {f["name"] for f in data["files"]}
+            assert names == {"soul", "genome", "persona"}
+            persona = next(f for f in data["files"] if f["name"] == "persona")
+            assert persona["content"] == "# persona\n"
+
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{server._test_port}/api/persona/files",
+                data=json.dumps({"name": "persona", "content": "# 新しい人格\n"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as r:
+                assert json.loads(r.read())["ok"] is True
+            assert (tmp / "identity" / "persona.md").read_text(encoding="utf-8") == "# 新しい人格\n"
+            assert reloads, "the prompt cache must be reloaded after an edit"
+            assert identity.tail(tmp, 1)[0]["action"] == "identity.write"
+
+            bad = urllib.request.Request(
+                f"http://127.0.0.1:{server._test_port}/api/persona/files",
+                data=json.dumps({"name": "meta.md", "content": "x"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            try:
+                urllib.request.urlopen(bad, timeout=5)
+                raise AssertionError("unknown files must be rejected")
+            except urllib.error.HTTPError as e:
+                assert e.code == 400
+
+            big = urllib.request.Request(
+                f"http://127.0.0.1:{server._test_port}/api/persona/files",
+                data=json.dumps({"name": "persona", "content": "x" * 60001}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            try:
+                urllib.request.urlopen(big, timeout=5)
+                raise AssertionError("oversized files must be rejected")
+            except urllib.error.HTTPError as e:
+                assert e.code == 400
+        finally:
+            _stop(server)
+    finally:
+        ui._MEMORY_ROOT, ui._app_cfg = original_root, original_cfg
+        ui.agent.reload_system_prompt_cache = original_reload
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_page_has_the_identity_editor():
+    server = _start_server()
+    try:
+        page = _get(server, "/").decode("utf-8")
+        assert 'id="idbtn"' in page and 'id="idpanel"' in page
+        assert "/api/persona/files" in page
+    finally:
+        _stop(server)
+
+
 def test_requests_endpoint():
     """GET /api/requests returns pending items from request_list.md."""
     import tempfile

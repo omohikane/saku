@@ -35,6 +35,7 @@ from saku import auth
 from saku import conversation
 from saku import identity
 from saku import outbox as outbox_mod
+from saku import personafiles
 from saku import config as saku_config
 from saku.agent_loop import run_agent_loop
 from saku import core as agent
@@ -138,6 +139,23 @@ PAGE = """<!doctype html>
   #proactive { position:fixed; right:16px; bottom:80px; background:var(--panel);
                border:1px solid var(--accent); border-radius:8px; padding:10px 14px;
                max-width:280px; display:none; }
+  #idbtn { background:none; border:1px solid #555; border-radius:8px;
+           color:var(--text); cursor:pointer; padding:2px 8px; }
+  #idpanel { position:fixed; top:60px; left:50%; transform:translateX(-50%);
+             width:min(680px, 92vw); background:var(--panel); border:1px solid var(--accent);
+             border-radius:10px; padding:12px 14px; display:none; z-index:20;
+             box-shadow:0 8px 24px rgba(0,0,0,.5); }
+  #idpanel .idhead { display:flex; justify-content:space-between; align-items:center; }
+  #idpanel select { background:#111; color:var(--text); border:1px solid #444;
+                    border-radius:6px; padding:4px 8px; margin:8px 0; }
+  #idtext { width:100%; height:50vh; background:#111; color:var(--text);
+            border:1px solid #444; border-radius:6px; padding:8px; resize:vertical;
+            font-family:ui-monospace, monospace; font-size:0.9em; }
+  #idpanel .idfoot { display:flex; justify-content:space-between; align-items:center;
+                     margin-top:8px; font-size:0.85em; color:#888; }
+  #idsave { background:var(--accent); border:none; color:#111; border-radius:6px;
+            padding:6px 14px; font-weight:bold; cursor:pointer; }
+  #idclose { background:none; border:none; color:#888; cursor:pointer; font-size:1.1em; }
   #notifbtn { background:none; border:1px solid #555; border-radius:8px;
               color:var(--text); cursor:pointer; padding:2px 8px; }
   #outbox { position:fixed; right:16px; bottom:140px; background:var(--panel);
@@ -168,10 +186,20 @@ PAGE = """<!doctype html>
 <body>
 <div id="app">
   <header><strong>SAKU</strong><span id="status">local</span>
-    <button id="notifbtn" title="デスクトップ通知を許可">🔔</button></header>
+    <button id="notifbtn" title="デスクトップ通知を許可">🔔</button>
+    <button id="idbtn" title="人格ファイルを編集（Owner のみ）">⚙</button></header>
   <div id="messages"></div>
   <div id="proactive"></div>
   <div id="outbox"></div>
+  <div id="idpanel">
+    <div class="idhead"><strong>人格ファイル</strong><button id="idclose" title="閉じる">×</button></div>
+    <select id="idselect"></select>
+    <textarea id="idtext" spellcheck="false" placeholder="ここを編集して保存します"></textarea>
+    <div class="idfoot">
+      <span id="idstatus"></span>
+      <button id="idsave">保存</button>
+    </div>
+  </div>
   <div id="requestbar">
     <button id="requestbtn">💡 依頼<span id="requestbadge">0</span></button>
     <div id="requestpanel"><h4>💡 Ownerへのお願いリスト</h4><ul></ul></div>
@@ -307,6 +335,57 @@ async function pollOutbox() {
     }
   } catch (e) {}
 }
+let identityFiles = {};
+function showIdentity() {
+  const file = identityFiles[$("#idselect").value];
+  $("#idtext").value = file ? file.content : "";
+  $("#idstatus").textContent = file ? file.path : "";
+}
+async function openIdentity() {
+  try {
+    const res = await fetch("/api/persona/files");
+    const data = await res.json();
+    identityFiles = {};
+    const sel = $("#idselect");
+    sel.textContent = "";
+    for (const file of (data.files || [])) {
+      identityFiles[file.name] = file;
+      const opt = document.createElement("option");
+      opt.value = file.name;
+      opt.textContent = file.name + " — " + file.path;
+      sel.appendChild(opt);
+    }
+    if (identityFiles.persona) sel.value = "persona";
+    showIdentity();
+    $("#idpanel").style.display = "block";
+  } catch (e) {
+    $("#idstatus").textContent = "読み込みに失敗しました";
+  }
+}
+$("#idselect").onchange = showIdentity;
+$("#idclose").onclick = () => { $("#idpanel").style.display = "none"; };
+$("#idsave").onclick = async () => {
+  const name = $("#idselect").value;
+  const content = $("#idtext").value;
+  try {
+    const res = await fetch("/api/persona/files", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({name, content}),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (identityFiles[name]) identityFiles[name].content = content;
+      $("#idstatus").textContent = "保存しました（次の発言から反映）";
+    } else {
+      $("#idstatus").textContent = "保存できません: " + (data.error || "unknown");
+    }
+  } catch (e) {
+    $("#idstatus").textContent = "保存に失敗しました";
+  }
+};
+$("#idbtn").onclick = openIdentity;
+
 const notifbtn = $("#notifbtn");
 if (!("Notification" in window)) {
   notifbtn.style.display = "none";
@@ -482,6 +561,19 @@ class Handler(BaseHTTPRequestHandler):
             self._send_headers(ctype="application/json")
             self.wfile.write(json.dumps(_load_proactive(), ensure_ascii=False).encode("utf-8"))
             return
+        if path == "/api/persona/files":
+            cfg = _app_cfg()
+            files = personafiles.resolve(cfg, _MEMORY_ROOT)
+            payload = {
+                "max_chars": personafiles.MAX_CHARS,
+                "files": [
+                    {"name": name, "path": str(p), "content": personafiles.read(p)}
+                    for name, p in files.as_dict().items()
+                ],
+            }
+            self._send_headers(ctype="application/json")
+            self.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+            return
         if path == "/api/outbox":
             self._send_headers(ctype="application/json")
             payload = {"items": _outbox_items(), "unread": outbox_mod.unread_count(_MEMORY_ROOT, _outbox_cfg())}
@@ -522,6 +614,37 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_login(status=403, error=True)
             return
 
+        if path == "/api/persona/files":
+            if not self._authenticated():
+                self._send_unauthorized()
+                return
+            try:
+                payload = json.loads(body or b"{}")
+            except Exception:
+                payload = {}
+            name = str(payload.get("name", ""))
+            content = payload.get("content", "")
+            problem = personafiles.validate(name, content)
+            if problem:
+                self._send_headers(400, ctype="application/json")
+                self.wfile.write(
+                    json.dumps({"ok": False, "error": problem}, ensure_ascii=False).encode("utf-8")
+                )
+                return
+            cfg = _app_cfg()
+            files = personafiles.resolve(cfg, _MEMORY_ROOT)
+            target = files.as_dict()[name]
+            personafiles.write(target, content)
+            agent.reload_system_prompt_cache()
+            identity.audit(
+                _MEMORY_ROOT, identity.OWNER, "identity.write",
+                channel="webui", detail=f"{name} ({len(content)} chars)",
+            )
+            self._send_headers(ctype="application/json")
+            self.wfile.write(
+                json.dumps({"ok": True, "path": str(target)}, ensure_ascii=False).encode("utf-8")
+            )
+            return
         if path == "/api/outbox/read":
             if not self._authenticated():
                 self._send_unauthorized()

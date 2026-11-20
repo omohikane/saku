@@ -199,6 +199,8 @@ root = "memory"
 # モデルが自分の報告文の文体を学習していました。ここで「毎ターンの記憶」と
 # 「会話の作法」を設定します。
 # [persona]
+# file = "identity/persona.md"   # 「どう話すか」の設定ファイル（genome は「誰か」）
+# chars = 2200                   # プロンプトに載せる上限文字数
 # continuity_enabled = true      # 毎ターン、最近の出来事と重要記憶を注入する
 # continuity_chars = 1800        # 注入ブロックの上限文字数
 # style_contract = true          # 第一文で答える／定型の挨拶と締めを書かない等
@@ -221,6 +223,12 @@ root = "memory"
 # max_chars = 800              # 1ファイルあたりモデルに渡す抜粋の長さ
 # allow_agent_apply = false    # [[SORT_NOTES apply="true"]] を許可するか
 
+
+# 人格ファイルの場所（soul / genome / persona）
+# 相対パスは memory root 基準。絶対パスと ${VAR} も可。
+# [identity]
+# soul = "identity/soul.md"
+# genome = "identity/genome.md"
 
 # 名乗りと権限（#73）
 # 名前は記録のため、権限はトークンで決まる。ここに定義したエージェントは
