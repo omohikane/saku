@@ -47,6 +47,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import config as saku_config
+from . import conversation
 from . import convjournal
 from . import killswitch
 from .llm import chat_stream as _llm_chat_stream
@@ -497,6 +498,17 @@ def check_mail_and_reply(
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
         _audit(mail_dir, "replied", claim, author, lid, digest)
+        try:
+            conversation.append(
+                memory_root, channel="mail", principal=claim,
+                role="user", text=letter["body"], cfg=cfg, now=now,
+            )
+            conversation.append(
+                memory_root, channel="mail", principal=claim,
+                role="assistant", text=reply_text, cfg=cfg, now=now,
+            )
+        except Exception:
+            logger.warning("mail: conversation append failed", exc_info=True)
         summary["replied"] += 1
         rec["status"] = "replied"
         rec["at"] = now

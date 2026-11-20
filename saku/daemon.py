@@ -29,6 +29,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from saku import core as agent
+from saku import conversation
 from saku import dreaming
 from saku import growth
 from saku import heartbeat as heartbeat_mod
@@ -563,6 +564,19 @@ Ownerのメッセージ:
     # Check request list and append if any pending
     request_suffix = get_pending_requests() if reply_ok else ""
     reply_block = f"\n**SAKU** ({now_str})\n{saku_reply}{request_suffix}\n"
+    try:
+        conversation.append(
+            MEMORY_ROOT, channel="chat.md", principal="owner",
+            role="user", text=owner_msg,
+        )
+        if reply_ok:
+            conversation.append(
+                MEMORY_ROOT, channel="chat.md", principal="owner",
+                role="assistant", text=saku_reply,
+            )
+    except Exception:
+        logger.warning("[conversation] chat.md append failed", exc_info=True)
+
     final_content = updated_content + reply_block
 
     with CHAT_FILE.open("a", encoding="utf-8") as f:
