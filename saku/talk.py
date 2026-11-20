@@ -60,6 +60,7 @@ from typing import Callable
 
 from . import config as saku_config
 from . import convjournal
+from . import identity
 from . import killswitch
 from . import talk_context
 from .llm import chat_stream as _llm_chat_stream
@@ -133,6 +134,7 @@ class TalkEngine:
         reserved_tokens: "tuple[str, ...]" = (),
         note_fn: "NoteFn | None" = None,
     ) -> None:
+        self._identity_cfg = cfg
         self.tcfg = saku_config.load_talk_config(cfg)
         # Conversation journal (#101): parsed once here; the engine's talk()
         # consults it after each successful exchange.
@@ -269,6 +271,23 @@ class TalkEngine:
         now = time.time() if now is None else now
         message = (message or "").strip()
         digest = _digest(message, hashlib.sha256(message.encode("utf-8")).hexdigest())
+
+        # #73: a talk token is a name plus a permission, not a name alone.
+        principal = identity.principal_for_agent(self._identity_cfg, caller)
+        identity.audit(
+            self.memory_root,
+            principal or identity.UNKNOWN,
+            "talk.turn",
+            channel="talk",
+            allowed=bool(principal and principal.can(identity.SCOPE_TALK)),
+            detail=f"len={len(message)}",
+            cfg=self._identity_cfg,
+            now=now,
+        )
+        if principal is None or not principal.can(identity.SCOPE_TALK):
+            self._audit("talk:rejected:not-permitted", caller, digest)
+            raise TalkRejected("caller is not permitted to talk")
+
         with self._lock:
             # Kill switch (#76): a stopped Saku does not converse. Refused
             # before any other guardrail and audit-logged; authentication

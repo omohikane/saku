@@ -330,6 +330,25 @@ def exec_tools(
 
         results.append(f"[{name}] {result}")
 
+    # #73: record what the acting principal actually ran. The audit log is a
+    # record, not a gate; the path policy and allowed_tools are the gates.
+    try:
+        from . import identity
+
+        principal = identity.current()
+        for result in results:
+            name = result[1:].split("]", 1)[0] if result.startswith("[") else "?"
+            identity.audit(
+                memory_root,
+                principal,
+                "tool",
+                channel="agent",
+                allowed="[DENY]" not in result and "[ERROR]" not in result,
+                detail=f"{name}: {result[:200]}",
+            )
+    except Exception:
+        pass
+
     # Validate unclosed/invalid tool calls
     for start_match in starts:
         name = start_match.group(1)

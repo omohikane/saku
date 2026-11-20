@@ -7,8 +7,12 @@ may still override it and are expected to restore the previous value.
 """
 
 import os
+import tempfile
 from pathlib import Path
 
 EXAMPLE = Path(__file__).resolve().parent.parent / "config.example.toml"
 
 os.environ["SAKU_CONFIG"] = str(EXAMPLE)
+# The identity audit log is append-only and lives under the memory root; tests
+# must never append to the Owner's real one (#73).
+os.environ["SAKU_AUDIT_FILE"] = str(Path(tempfile.mkdtemp(prefix="saku-test-audit-")) / "audit.log")

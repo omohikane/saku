@@ -7,7 +7,9 @@ No LLM required: /api/chat returns an SSE error event when llama-server is down.
 """
 
 import json
+import os
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -20,6 +22,10 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from saku import ui
+
+os.environ.setdefault(
+    "SAKU_AUDIT_FILE", str(Path(tempfile.mkdtemp(prefix="saku-test-audit-")) / "audit.log")
+)
 
 PORT_BASE = 8800
 _PORT_COUNTER = {"n": 0}

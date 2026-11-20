@@ -32,6 +32,7 @@ from saku import core as agent
 from saku import dreaming
 from saku import growth
 from saku import heartbeat as heartbeat_mod
+from saku import identity
 from saku import killswitch
 from saku import mail as saku_mail
 from saku import provenance
@@ -424,18 +425,26 @@ def run_agent_loop(
         logger.debug("[TOOL] [%s] %s", log_action_name, tool_output[:500])
         print(f"\n[tool] {tool_output}")
 
-    result = _run_agent_loop(
-        history,
-        agent.llm_for_role(role) if role else agent._current_llm,
-        agent.context_config,
-        agent.MEMORY_ROOT,
-        agent.CODE_ROOT,
-        max_turns=5,
-        on_tool_result=on_tool_result,
-        no_action_markers=NO_ACTION_MARKERS,
-        log=lambda msg: logger.warning("[%s] %s", log_action_name, msg),
-        should_stop=killswitch_stopped if autonomous else None,
-    )
+    with identity.as_principal(identity.SYSTEM):
+        identity.audit(
+            MEMORY_ROOT,
+            identity.SYSTEM,
+            "agent_loop",
+            channel="daemon",
+            detail=log_action_name,
+        )
+        result = _run_agent_loop(
+            history,
+            agent.llm_for_role(role) if role else agent._current_llm,
+            agent.context_config,
+            agent.MEMORY_ROOT,
+            agent.CODE_ROOT,
+            max_turns=5,
+            on_tool_result=on_tool_result,
+            no_action_markers=NO_ACTION_MARKERS,
+            log=lambda msg: logger.warning("[%s] %s", log_action_name, msg),
+            should_stop=killswitch_stopped if autonomous else None,
+        )
 
     visible = _strip_no_action_markers(result.visible)
     errored = (not result.last_raw) or result.last_raw.startswith("[ERROR]")
