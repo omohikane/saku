@@ -235,6 +235,13 @@ root = "memory"
 # [audit]
 # file = "state/audit.log"
 
+# 自発発話の配送（`saku say` / #120 第2段）
+# 宛先は owner（UI の outbox）か、[identity.agents] で mail スコープを持つエージェント。
+# [speech]
+# max_chars = 1500
+# max_per_hour = 6             # 宛先ごとの上限（暴走防止）
+# state_file = "state/speech.json"
+
 # Owner への配送キュー（自発発話と通知の共通経路）
 # state/outbox.json に残るので、ブラウザを閉じても再起動しても消えない。
 # [outbox]
