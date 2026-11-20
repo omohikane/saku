@@ -222,6 +222,20 @@ root = "memory"
 # allow_agent_apply = false    # [[SORT_NOTES apply="true"]] を許可するか
 
 
+# 文脈の感知（`saku presence` / 自発発話の可否）
+# 手動 > 深夜 > 勤務時間 > 無活動 の順で判定する。カレンダーや位置情報は使わない。
+# [presence]
+# enabled = true
+# file = "state/presence.json"
+# away_after_minutes = 180     # これ以上操作が無ければ away
+# sleep_start = "00:30"        # 深夜（この間は話しかけない）
+# sleep_end = "06:30"
+# work_days = [0, 1, 2, 3, 4]  # 月=0
+# work_start = "09:00"
+# work_end = "18:00"
+# speak_while_working = false
+# speak_while_away = true      # 不在でも届けておく（後で読める）
+
 # 死活監視（`saku heartbeat` / `saku status` の heartbeat 行）
 # デーモンがループごとに書き、外部の監視（systemd timer / cron）は
 # `saku heartbeat --check` の終了コードで判断する（0=生存、1=停止疑い）。

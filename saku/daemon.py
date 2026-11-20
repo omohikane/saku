@@ -36,6 +36,7 @@ from saku import killswitch
 from saku import mail as saku_mail
 from saku import provenance
 from saku import persona
+from saku import presence
 from saku import reflection
 from saku import skills as saku_skills
 from saku import weekly
@@ -72,6 +73,11 @@ HEARTBEAT_ENABLED = _hbcfg.enabled
 HEARTBEAT_FILE = _hbcfg.file
 HEARTBEAT_MAX_AGE = _hbcfg.max_age_seconds
 HEARTBEAT_NOTIFY_ON_GAP = _hbcfg.notify_on_gap
+
+# Presence (#82): decides whether a spontaneous message should go out at all.
+# Heartbeat/outage notices are exempt: a failure must be reported even at night.
+PRESENCE_ENABLED = agent.saku_config.load_presence_config(agent._cfg).enabled
+PRESENCE_CFG = agent.saku_config.load_presence_config(agent._cfg)
 
 CHAT_POLL_SECONDS = _dcfg.get("chat_poll_seconds", 5)
 INBOX_POLL_SECONDS = _dcfg.get("inbox_poll_seconds", 3600)
@@ -602,6 +608,17 @@ def check_autonomous_initiation() -> None:
     if not chat_history and state.get("turn_count", 0) == 0:
         # Avoid initiating immediately on a completely empty chat
         return
+
+    # Presence (#82): speaking into a sleeping house is worse than silence.
+    # Only spontaneous conversation is gated; notices from the heartbeat path
+    # are not (a dead daemon must say so).
+    if PRESENCE_ENABLED:
+        current = presence.load(MEMORY_ROOT, PRESENCE_CFG, now=now)
+        if not current.can_speak:
+            logger.info(
+                "[initiation] skipped: presence=%s (%s)", current.state, current.source
+            )
+            return
 
     # Record the attempt time before running (retry after an interval even on failure)
     state["last_initiate_attempt"] = now
