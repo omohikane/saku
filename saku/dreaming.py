@@ -19,6 +19,8 @@ see ``saku/provenance.py``), so a durable fact can later be traced to its origin
 Provenance is written once, at promotion; reinforcement never rewrites it.
 """
 
+from __future__ import annotations
+
 import re
 import sys
 from dataclasses import dataclass, field
