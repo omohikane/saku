@@ -99,7 +99,7 @@ def test_reflection_does_not_report_a_review_of_an_empty_day():
         orig_root = _patch("MEMORY_ROOT", root)
         orig_reflection = _patch("reflection", _Refl())
         orig_initiate = _patch("saku_self_initiate", lambda reason: calls.append(reason))
-        orig_notify = _patch("notify_webui", lambda msg: calls.append(msg))
+        orig_notify = _patch("notify_webui", lambda msg, **k: calls.append(msg))
         orig_state = _patch("load_chat_state", lambda: _mock_state())
         orig_save = _patch("save_chat_state", lambda s: None)
         try:
@@ -217,7 +217,7 @@ def test_owner_message_gets_reply_appended():
         daemon_mod.run_agent_loop = _fake_loop
         daemon_mod.get_pending_requests = lambda: ""
         daemon_mod.check_chat_archive_if_needed = lambda s: None
-        daemon_mod.agent.build_recall_message = lambda msg: None
+        daemon_mod.agent.build_recall_message = lambda msg, **k: None
         daemon_mod.agent.save_journal = lambda owner, reply, thinking="": journalled.append((owner, reply))
         try:
             chat.write_text(header + "\n\n今日はどう？ >\n", encoding="utf-8")
@@ -271,7 +271,7 @@ def test_empty_reply_posts_fallback_instead_of_silence():
         daemon_mod.run_agent_loop = lambda *a, **k: (False, "")
         daemon_mod.get_pending_requests = lambda: ""
         daemon_mod.check_chat_archive_if_needed = lambda s: archived.append(s)
-        daemon_mod.agent.build_recall_message = lambda msg: None
+        daemon_mod.agent.build_recall_message = lambda msg, **k: None
         daemon_mod.agent.save_journal = lambda owner, reply, thinking="": journalled.append((owner, reply))
         try:
             chat.write_text(header + "\n\n応答して >\n", encoding="utf-8")
@@ -402,7 +402,7 @@ def test_chat_reply_is_guarded_before_posting():
         daemon_mod.run_agent_loop = lambda *a, **k: (True, repeated)
         daemon_mod.get_pending_requests = lambda: ""
         daemon_mod.check_chat_archive_if_needed = lambda s: None
-        daemon_mod.agent.build_recall_message = lambda msg: None
+        daemon_mod.agent.build_recall_message = lambda msg, **k: None
         daemon_mod.agent.save_journal = lambda owner, reply, thinking="": None
         try:
             chat.write_text(header + "\n\nこれはどう？ >\n", encoding="utf-8")
@@ -544,7 +544,7 @@ def _run_reflection_report(tmp: Path, touch_meta: bool) -> str:
     orig_root = _patch("MEMORY_ROOT", tmp)
     orig_reflection = _patch("reflection", _Refl())
     orig_initiate = _patch("saku_self_initiate", lambda reason: calls.append(reason))
-    orig_notify = _patch("notify_webui", lambda msg: calls.append(msg))
+    orig_notify = _patch("notify_webui", lambda msg, **k: calls.append(msg))
     orig_state = _patch("load_chat_state", lambda: _mock_state())
     orig_save = _patch("save_chat_state", lambda s: None)
     try:
@@ -706,7 +706,7 @@ def test_chat_reply_uses_log_action_false():
         daemon_mod.run_agent_loop = _fake_loop
         daemon_mod.get_pending_requests = lambda: ""
         daemon_mod.check_chat_archive_if_needed = lambda s: None
-        daemon_mod.agent.build_recall_message = lambda msg: None
+        daemon_mod.agent.build_recall_message = lambda msg, **k: None
         daemon_mod.agent.save_journal = lambda owner, reply, thinking="": None
         try:
             chat.write_text(header + "\n\n今日はどう？ >\n", encoding="utf-8")
@@ -743,8 +743,8 @@ def _chat_test_env(chat, state, loop_impl):
     daemon_mod.run_agent_loop = loop_impl
     daemon_mod.get_pending_requests = lambda: ""
     daemon_mod.check_chat_archive_if_needed = lambda s: None
-    daemon_mod.notify_webui = lambda msg: None
-    daemon_mod.agent.build_recall_message = lambda msg: None
+    daemon_mod.notify_webui = lambda msg, **k: None
+    daemon_mod.agent.build_recall_message = lambda msg, **k: None
     daemon_mod.agent.save_journal = lambda owner, reply, thinking="": None
 
     def restore():

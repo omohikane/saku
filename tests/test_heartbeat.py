@@ -148,7 +148,7 @@ def test_daemon_check_heartbeat_gap_notifies_once():
         daemon_mod.HEARTBEAT_ENABLED = True
         daemon_mod.HEARTBEAT_MAX_AGE = 900
         daemon_mod.HEARTBEAT_NOTIFY_ON_GAP = True
-        daemon_mod.notify_webui = lambda msg: notices.append(msg)
+        daemon_mod.notify_webui = lambda msg, **k: notices.append(msg)
         try:
             gap = daemon_mod.check_heartbeat_gap()
         finally:

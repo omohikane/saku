@@ -36,6 +36,7 @@ from saku import killswitch
 from saku import mail as saku_mail
 from saku import provenance
 from saku import persona
+from saku import outbox
 from saku import presence
 from saku import reflection
 from saku import skills as saku_skills
@@ -707,7 +708,7 @@ def saku_self_initiate(reason: str) -> None:
 
     # Also deliver to the Web UI (when "webui" is included in [channels] proactive)
     if "webui" in PROACTIVE_CHANNELS:
-        notify_webui(saku_msg)
+        notify_webui(saku_msg, kind=outbox.KIND_SPONTANEOUS, source="initiation")
 
     # Save the updated content state so daemon doesn't loop
     state["last_mtime"] = CHAT_FILE.stat().st_mtime
@@ -715,13 +716,18 @@ def saku_self_initiate(reason: str) -> None:
     save_chat_state(state)
 
 
-def notify_webui(message: str) -> None:
-    """Deliver autonomous messages/alerts to the Web UI (proactive notification)."""
-    UI_INBOX.parent.mkdir(parents=True, exist_ok=True)
-    UI_INBOX.write_text(
-        json.dumps({"message": message}, ensure_ascii=False),
-        encoding="utf-8",
-    )
+def notify_webui(message: str, *, kind: str = outbox.KIND_NOTICE, source: str = "") -> None:
+    """Deliver a message from SAKU to the Owner (#120).
+
+    Everything goes through the durable outbox: the Web UI polls it, and a
+    message survives a closed browser or a daemon restart instead of living in
+    the single ``ui_inbox.json`` slot that the next poll consumed.
+    """
+    try:
+        ocfg = agent.saku_config.load_outbox_config(agent._cfg)
+        outbox.add(MEMORY_ROOT, message, kind=kind, source=source, cfg=ocfg)
+    except Exception as e:  # delivery must never take the daemon down
+        logger.warning("[outbox] delivery failed: %s", e)
 
 # ── Midnight Reflection (2:00 AM) ──────────────────────────
 def has_daily_logs(date: str) -> bool:
