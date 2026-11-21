@@ -113,6 +113,29 @@ def test_nothing_to_commit():
         sb.close()
 
 
+def test_nothing_to_commit_still_pushes_a_stranded_commit():
+    """A push that failed must not be stranded behind "nothing to commit"."""
+    sb = _sandbox()
+    try:
+        sb.write_memory("MEMORY.md", "# memory\n")
+        assert vault_git.sync(_git_cfg(), sb.memory_root, sb.base)["ok"]
+
+        # Simulate a commit whose push failed (network outage): local-only.
+        sb.write_memory("journal/2026-11-21.md", "pending\n")
+        _git("add", "-A", cwd=sb.repo)
+        _git("commit", "-q", "-m", "pending memory", cwd=sb.repo)
+        remote_before = _git("log", "--oneline", "main", cwd=sb.remote)
+        assert "pending memory" not in remote_before
+
+        res = vault_git.sync(_git_cfg(), sb.memory_root, sb.base)
+        assert res["ok"], res
+        assert res["action"] == "push", res
+        remote_after = _git("log", "--oneline", "main", cwd=sb.remote)
+        assert "pending memory" in remote_after
+    finally:
+        sb.close()
+
+
 def test_scope_does_not_sweep_owner_edits():
     sb = _sandbox()
     try:
