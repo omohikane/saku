@@ -7,6 +7,10 @@ and this project adheres to https://semver.org/spec/v2.0.0.html.
 
 ## [Unreleased]
 
+### Fixed
+
+- A memory-repository commit whose push failed is no longer stranded: when the pathspec has nothing new to commit, `saku sync` checks whether the local branch is ahead of its upstream and pushes the pending commit (after the usual pull-rebase). Previously every later sync answered "no changes to commit" while the commit sat unpushed — which is what a network outage during the GitHub API incident produced.
+
 ### Added
 
 - Persona as an editable configuration file (#73 follow-up): `identity/persona.md` is injected verbatim as a `# Persona` system section (bounded by `[persona] chars`), separate from `genome.md` ("who is SAKU") and `soul.md` ("core values"). All three paths are configurable (`[identity] soul / genome`, `[persona] file`; memory-relative, absolute or `${VAR}`), with the old genome fallbacks preserved. The Web UI gains an identity editor (⚙) that reads/writes exactly these three files behind the Owner token, reloads the prompt cache after a save, keeps one `.bak`, and audits the write; `saku persona init` scaffolds a starter document. SAKU's own tools can never touch them: all three are on the write and delete deny lists, so `WRITE_FILE` / `APPEND_FILE` / `MOVE_FILE` / `DELETE_FILE` refuse them even if `[paths] write_allowed` is widened. `docs/PERSONA.md` explains the layering and the OSS workflow.

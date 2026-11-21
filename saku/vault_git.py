@@ -279,6 +279,22 @@ def sync(git_cfg: GitConfig | None = None, memory_root: Path | None = None, base
 
             cached = _git(repo, ["diff", "--cached", "--quiet", "--", *specs], git_cfg)
             if cached.returncode == 0:
+                # Nothing new to commit, but an earlier commit may still be
+                # unpushed (a push that failed during a network outage used to
+                # be stranded: every later sync said "nothing to commit").
+                ahead = _git(repo, ["rev-list", "--count", "@{u}..HEAD"], git_cfg)
+                pending = ahead.returncode == 0 and (ahead.stdout.strip() or "0").isdigit() and int(
+                    ahead.stdout.strip() or "0"
+                ) > 0
+                if pending and git_cfg.push:
+                    pushed, push_message = _pull_and_push(repo, git_cfg)
+                    result.update(
+                        ok=pushed,
+                        action="push" if pushed else "push-failed",
+                        message=push_message,
+                    )
+                    _log(repo, git_cfg, f"{result['message']} (pending commit)")
+                    return result
                 result.update(ok=True, action="nothing", message="no changes to commit")
                 return result
 
